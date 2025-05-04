@@ -1,15 +1,14 @@
 ---
 title: Images in Next.js
-date: '2020-11-11'
-tags: ['next js', 'guide']
+date: '2024-01-01'
+tags: ['GoodJob 職場透明化運動', ]  
 draft: false
-summary: 'In this article we introduce adding images in the tailwind starter blog and the benefits and limitations of the next/image component.'
-authors: ['sparrowhawk']
+summary: '職場透明化運動'
+authors: ['Harry Su']
 ---
 
 # Introduction
 
-The tailwind starter blog has out of the box support for [Next.js's built-in image component](https://nextjs.org/docs/api-reference/next/image) and automatically swaps out default image tags in markdown or mdx documents to use the Image component provided.
 
 # Usage
 
@@ -18,7 +17,7 @@ To use in a new page route / javascript file, simply import the image component 
 ```js
 import Image from 'next/image'
 
-function Home() {
+function HomeGood() {
   return (
     <>
       <h1>My Homepage</h1>
@@ -28,7 +27,7 @@ function Home() {
   )
 }
 
-export default Home
+export default HomeGood
 ```
 
 For a markdown file, the default image tag can be used and the default `img` tag gets replaced by the `Image` component in the build process.
