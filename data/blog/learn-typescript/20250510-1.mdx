@@ -7,7 +7,7 @@ summary: '為你自己學 TypeScript'
 authors: ['YongChen Su']
 ---
 
-# Usage
+### 用 `in` 與 `is` 實作 TypeScript 聯合型別縮窄
 在 TypeScript 裡，`"role" in person` 這段語法其實是利用 JavaScript 的 in 運算子來做「屬性存在性檢查」，同時被 TypeScript 當作一種 type guard（型別守衛），用來把聯合型別（union）縮窄（narrow）到其中包含 role 屬性的那個分支。
 
 ```typescript
@@ -24,3 +24,46 @@ function checkRole(person: Person) {
   }
 }
 ```
+
+回傳值可以用 person is Admin 或 person is User 來表示，這樣 TypeScript 就知道回傳值是 Admin 或 User 型別。
+```typescript
+// 範例
+export function isAdmin(person: Person): person is Admin {
+    return person.type === 'admin';
+}
+
+export function isUser(person: Person): person is User {
+    return person.type === 'user';
+}
+```
+
+### filterUsers 函式解析：如何用 `Partial<Omit<User, 'type'>>` 動態篩選 User 陣列
+- `Omit` 是移除屬性
+- `Partial` 是把所有屬性變成可選
+
+```typescript
+export function filterUsers(
+  persons: Person[],
+  criteria: Partial<Omit<User, 'type'>>
+): User[] {
+  return persons
+    .filter(isUser)                  // ① 先篩選出所有 User
+    .filter((user) => {              // ② 再對每個 user 進一步比對 criteria
+      // Object.keys 回傳 string[]，這裡做型別斷言
+      const criteriaKeys = Object.keys(criteria)
+        as (keyof Omit<User, 'type'>)[];
+      
+      // ③ 只要 criteria 裡每個欄位，都在 user 上「完全相符」
+      return criteriaKeys.every((fieldName) => {
+        return user[fieldName] === criteria[fieldName];
+      });
+    });
+}
+```
+
+#### 步驟說明
+①	persons.filter(isUser)：利用事先寫好的 type-guard isUser（檢查 type==='user'），只保留 User。
+
+②	criteria: `Partial<Omit<User,'type'>>`：傳入想篩選的欄位（name、age、occupation 任一或多個），且全部可選。
+
+③	Object.keys(criteria)：拿到使用者實際傳入的欄位陣列，透過 every 逐一檢查 user[fieldName] === criteria[fieldName]，都相符才算符合篩選。
