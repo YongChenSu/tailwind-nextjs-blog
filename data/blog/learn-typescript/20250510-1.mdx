@@ -1,0 +1,26 @@
+---
+title: role in 
+date: '2025-05-10'
+tags: ['TypeScript']  
+draft: false
+summary: '為你自己學 TypeScript'
+authors: ['YongChen Su']
+---
+
+# Usage
+在 TypeScript 裡，`"role" in person` 這段語法其實是利用 JavaScript 的 in 運算子來做「屬性存在性檢查」，同時被 TypeScript 當作一種 type guard（型別守衛），用來把聯合型別（union）縮窄（narrow）到其中包含 role 屬性的那個分支。
+
+```typescript
+// 範例
+type Person = {
+  name: string;
+  role?: string;
+}
+
+function checkRole(person: Person) {
+  if ("role" in person) {
+    // TypeScript 知道 person 一定有 role 屬性
+    console.log(person.role);
+  }
+}
+```
