@@ -1,0 +1,65 @@
+---
+title: role in 
+date: '2025-05-12'
+tags: ['TypeScript']  
+draft: false
+summary: '為你自己學 TypeScript'
+authors: ['YongChen Su']
+---
+
+# 函式多載 (Function Overload)
+多個「宣告簽名」（Overload Signatures）
+
+一個「實作簽名」（Implementation Signature）
+
+── 編譯後，只有實作那一段會變成 JavaScript，所有宣告簽名都會被擦除；也就是說，執行時只有一個 filterPersons 函式存在，更不會有名稱衝突。
+
+
+```typescript
+// Overload 1──當 personType: 'user' 時，回傳 User[]
+export function filterPersons(
+  persons: Person[],
+  personType: 'user',
+  criteria: Partial<Omit<User, 'type'>>
+): User[];
+
+// Overload 2──當 personType: 'admin' 時，回傳 Admin[]
+export function filterPersons(
+  persons: Person[],
+  personType: 'admin',
+  criteria: Partial<Omit<Admin, 'type'>>
+): Admin[];
+
+// 實作簽名：接受一般的 Person[]、Person['type'] 和 Partial<Omit<Person,'type'>>
+export function filterPersons(
+  persons: Person[],
+  personType: Person['type'],
+  criteria: Partial<Omit<Person, 'type'>>
+): Person[] {
+  return persons
+    .filter((p): p is Extract<Person, { type: typeof personType }> => p.type === personType)
+    .filter((person) => {
+      const keys = Object.keys(criteria) as Array<keyof typeof person>;
+      return keys.every((key) => person[key] === (criteria as any)[key]);
+    });
+}
+```
+
+
+```typescript
+const getObjectKeys = <T>(obj: T) => Object.keys(obj) as (keyof T)[];
+
+export function filterPersons(persons: Person[], personType: User['type'], criteria: Partial<Omit<User, 'type'>>): User[];
+export function filterPersons(persons: Person[], personType: Admin['type'], criteria: Partial<Omit<Admin, 'type'>>): Admin[];
+export function filterPersons(persons: Person[], personType: Person['type'], criteria: Partial<Person>): Person[] {
+    return persons
+        .filter((person) => person.type === personType)
+        .filter((person) => {
+            let criteriaKeys = getObjectKeys(criteria);
+            return criteriaKeys.every((fieldName) => {
+                return person[fieldName] === criteria[fieldName];
+            });
+        });
+}
+
+```
