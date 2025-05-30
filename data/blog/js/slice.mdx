@@ -1,0 +1,34 @@
+---
+title: slice
+date: '2025-05-10'
+tags: ['TypeScript']  
+draft: false
+summary: 'slice'
+authors: ['YongChen Su']
+---
+
+# slice
+不修改原陣列
+
+## animals.slice(2)
+```typescript
+const animals = ["ant", "bison", "camel", "duck", "elephant"];
+
+console.log(animals.slice(2));
+// ["camel", "duck", "elephant"]
+// 也就是從 index 2 開始，拿包含 index 2 以及之後所有 item
+
+console.log(animals);
+// ["ant", "bison", "camel", "duck", "elephant"]
+// 不修改原陣列
+```
+
+## animals.slice(0, 2)
+```typescript
+const animals = ["ant", "bison", "camel", "duck", "elephant"];
+
+console.log(animals.slice(0, 2));
+// ["ant", "bison"]
+// 取 index 0 ~ index (2-1)
+// animals.slice(a, b) 等於取 index a ~ index (b-1)  
+```
