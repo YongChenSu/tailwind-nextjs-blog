@@ -1,0 +1,23 @@
+---
+title: https 與 ssh 的差異
+date: '2025-05-31'
+tags: ['https', 'ssh']  
+draft: false
+summary: 'https 與 ssh 的差異'
+authors: ['YongChen']
+---
+
+### https 與 ssh 的差異
+
+使用 SSH 而不是 HTTPS 來連接 Git 遠端倉庫。這是因為：
+1. HTTPS 方式：
+   - 每次推送到遠端時都需要輸入 GitHub 的用戶名和密碼
+   - 如果使用個人訪問令牌（Personal Access Token），也需要記住這個令牌
+   - 相對來說比較麻煩，需要重複認證
+2. SSH 方式：
+   - 只需要設定一次 SSH 金鑰
+   - 之後就不需要重複輸入密碼
+   - 更安全且方便
+   - 適合經常需要與遠端倉庫互動的情況
+
+
