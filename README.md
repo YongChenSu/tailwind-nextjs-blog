@@ -342,3 +342,7 @@ Using the template? Support this effort by giving a star on GitHub, sharing your
 ## Licence
 
 [MIT](https://github.com/timlrx/tailwind-nextjs-starter-blog/blob/main/LICENSE) © [Timothy Lin](https://www.timlrx.com)
+
+
+## daisyui url
+https://daisyui.com/theme-generator/?lang=en#theme=eJyVk-uK2zAQhV9FGAotbITul76NYo83ZhUrSA57KX33KnLqOJFZyD9r5pszc6Txn2Z0R2h-N62L-cN7N03QvDRt8CHuUnuAkvXD62HK4d1uTuxdgh0lJKfCm28PP635gQgmVCHNsTLi1yPM1rAsMDdIS0xVDfM1TAqsszLByuoKbsM4wTgtBaIUUMYRN5hqti44xeHo4ufCXlBENohKNZut2ASZ6tZ6jGExm9MScY2N3OQr9e9Mura9s6ewEMUhpXWLGX5Kf4TzFJ1fWFkMUCsv9ycI22Br_W-efxj7cJuezeIWMSWx4uaRfGr0dM52U7qp88Lm0alS2FK-AT_V4N3FcRhfF9bM4xuLjMCC2Q223kc6vxZDQmJL7u4GYgxxIfW8uZaivEeMqoqstLktFSJXSKzZ1W903XBOed08tFPRZxGO61Q_gO9ynGD5kNmHjxyn_6Np-IK1EMFM3uVuSrfEPsQOStvTRwl0cJoOF9lyGsOQ4HrqoHdnnw31zid4aU4Reogp_yRv19jff7n9Ud4
