@@ -1,0 +1,97 @@
+---
+title: Github Action cron
+date: '2025-06-01'
+tags: ['Github Action']  
+draft: false
+summary: 'Github Action cron'
+authors: ['YongChen']
+---
+
+# 排程語法
+```yaml
+schedule:
+    - cron: '00 18 * * *'
+```
+
+00 18 * * *
+格式為：分 時 日 月 星期
+
+時間格式是 UTC 時區，所以換算成台北時區的話，`00 18 * * *` 是每天 02:00
+
+```yaml
+# .github/workflows/main.yml
+name: CI / E2E Test
+
+on:
+  # 1. 每次 push 到 main 或指定功能分支時觸發
+  push:
+    branches:
+      - main
+      - feat/regularly-run-e2e
+
+  # 2. 手動可以在 GitHub 網頁上按按鈕觸發
+  workflow_dispatch:
+
+  # 3. 定時排程（UTC 時區），以下範例是每天 02:00 (Taiwan Time) 執行一次
+  schedule:
+    - cron: '00 18 * * *'
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 若有安裝 Node.js 需求，就先把 Node 環境準備好
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: yarn install
+
+      # 若要跑 E2E 測試，以下示範用 yarn script
+      - name: Run E2E Tests
+        run: yarn run test:e2e
+```
+
+
+### puppeteer 測試案例
+```javascript
+// simple-test.js
+const puppeteer = require('puppeteer');
+const assert = require('assert');
+
+(async () => {
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage'
+    ]
+  });
+  const page = await browser.newPage();
+
+  // 2. 導向到目標網頁
+  await page.goto('https://example.com');
+
+  // 3. 取得頁面標題
+  const title = await page.title();
+  console.log('頁面標題:', title);
+
+  // 4. 驗證標題是否為 "Example Domain"
+  assert.strictEqual(title, 'Example Domain', '頁面標題不符合預期！');
+
+  console.log('👍 標題驗證通過！');
+
+  await browser.close();
+})();
+```
+
+### Github Action Run 測試成功
+![Github Action Run](/static/images/2025-06-01-1.png)
+
