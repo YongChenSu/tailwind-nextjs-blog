@@ -1,0 +1,127 @@
+---
+title: JavaScript 錯誤處理：throw error vs throw new Error 的差異
+date: '2025-06-14'
+tags: ['JavaScript']  
+draft: false
+summary: 'JavaScript 中 throw error 和 throw new Error 的差異，以及 Error 物件的重要屬性'
+authors: ['YongChen']
+---
+
+## 錯誤處理： throw error
+```js
+const testFun1 = () => {
+  try {
+    // 手動拋出錯誤，強制進入 catch
+    throw new Error('測試錯誤');
+  } catch (error) {
+    if (error instanceof Error) {
+      console.log('捕捉到 Error:', error.message); // 捕捉到 Error: 測試錯誤
+      throw error; // Uncaught Error: 測試錯誤
+    }
+    throw new Error('Unexpected error');
+  }
+}
+testFun1();
+```
+
+印出順序：
+1. `捕捉到 Error: 測試錯誤`
+2. `Uncaught Error: 測試錯誤`
+
+error 是 Error 物件，先 `throw error` 了，所以程式碼不會走到 `throw new Error`
+
+## 錯誤處理： throw new Error
+
+```js
+const testFun2 = () => {
+  try {
+    // 手動拋出錯誤，強制進入 catch
+    throw new Error('測試錯誤');
+  } catch (error) {
+    if (error instanceof Error) {
+      console.log('捕捉到 Error:', error.message);
+    }
+    throw new Error('Unexpected error');
+  }
+}
+
+testFun2();
+```
+
+印出順序：
+1. `捕捉到 Error: 測試錯誤`
+2. `Unexpected error`
+
+沒有 `throw error`，所以程式碼會走到 `throw new Error`
+
+**throw error & throw new Error 差異**
+![image.png](/static/images/2025/06/14/try-catch-error-func1-func2.png)
+
+## Error 物件： error.message, error.stack, error.name
+Error 物件有 3 個屬性：name、message、stack
+error.name：錯誤類型（如 "Error"、"TypeError"）
+error.message：錯誤訊息（建立 Error 時所傳入的文字）
+error.stack：錯誤堆疊追蹤（stack trace），描述錯誤發生時的呼叫堆疊路徑
+
+```js
+try {
+  throw new Error("錯誤處理")
+} catch (error) {
+    console.log('error.message', error.message) // error.message 錯誤處理
+    console.log('error.stack', error.stack) // error.stack Error: 錯誤處理 at <anonymous>:2:9
+    console.log('error.name', error.name) // error.name Error
+    throw new Error('Unexpected error') // Unexpected error
+}
+```
+
+印出順序：
+1. `error.message 錯誤處理`
+2. `error.stack Error: 錯誤處理 at <anonymous>:2:9`
+3. `error.name Error`
+4. `Unexpected error`
+
+![image.png](/static/images/2025/06/14/try-catch-error-message-stack-name.png)
+
+
+## JS 允許 throw 非 Error 物件
+```js
+try {
+  throw 123;
+} catch (error) {
+  // error 是數字，instanceof Error → false
+  if (error instanceof Error) {
+    throw error
+  }
+  throw new Error('Unexpected error') // Unexpected error
+}
+```
+
+會印出：
+`Unexpected error`
+
+## 當錯誤不為 Error 物件時，保留原始錯誤資訊，是更好的寫法
+
+```js
+try {
+  throw ('會進到 throw new Error')
+} catch (error) {
+  if (error instanceof Error) {
+    throw error;
+  }
+  throw new Error(
+    'Unexpected error', { cause: error }
+    // Uncaught Error: Unexpected error
+    //   at <anonymous>:7:9Caused by: 會進到 throw new Error
+  );
+}
+```
+
+印出順序：
+1. `Uncaught Error: Unexpected error at <anonymous>:7:9Caused by: 會進到 throw new Error`
+
+
+# 總結
+1. **throw error**：重用原本的錯誤物件，若先 throw error，則不會走到 throw new Error。
+2. **throw new Error(...)**：建立新例外，手動傳入 cause 能保留原始錯誤。
+3. **Error 物件有 3 個屬性**：name、message、stack。
+4. **JavaScript 允許 throw 任意表達式／資料型別**，不一定是 Error 物件。
