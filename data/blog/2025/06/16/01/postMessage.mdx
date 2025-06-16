@@ -1,1 +1,98 @@
-image.png
+---
+title: '使用 postMessage 實現 iframe 父子頁面通訊'
+date: '2025-06-16'
+tags: ['JavaScript']  
+draft: false
+summary: '介紹如何使用 postMessage API 實現 iframe 父子頁面之間的安全通訊，包含實際程式碼範例、執行流程說明及 console 輸出結果分析。'
+authors: ['YongChen']
+---
+
+## Main Page
+Main Page 會載入 Child iframe，並且透過 postMessage 傳送訊息給 Child iframe。
+等到 Child iframe 載入完成後，會透過 message 事件監聽 Main Page 傳送的訊息。
+
+```html
+<h1>Main Page</h1>
+<iframe id="child" src="./child.html"></iframe>
+<script>
+	console.log('[Main Page] Page loaded');
+	const iframe = document.getElementById("child");
+	iframe.addEventListener('load', () => {
+		console.log('[Main Page] Sending message to child');
+		iframe.contentWindow.postMessage({ msg: "Hello from parent" }, "*");
+	});
+</script>
+```
+
+## Child iframe
+```html
+<h1>Child Page</h1>
+<script>
+	console.log('[Child Page] Page loaded');
+	window.addEventListener("message", (event) => {
+		console.log('[Child Page] Message received:', event.data);
+		console.log('[Child Page] Origin:', event.origin);
+	});
+</script>
+```
+
+在 Main Page 會 log 出
+1. `[Main Page] Page loaded`
+2. `[Child Page] Page loaded`
+3. `[Main Page] Sending message to child`
+4. `[Child Page] Message received: {msg: 'Hello from parent'}`
+5. `[Child Page] Origin: http://127.0.0.1:5500`
+
+#### log on browser console
+![main-iframe](/static/images/2025/06/16/main-iframe.png)
+
+#### log on child page console
+由於安裝 react 的 devtools 後，會在 console 顯示 react 的 log:
+
+**react-devtools-hook-installer**
+```js
+{
+    "source": "react-devtools-hook-installer",
+    "payload": {
+        "handshake": true
+    }
+}
+```
+
+**react-devtools-hook-settings-injector**
+```js
+{
+    "source": "react-devtools-hook-settings-injector",
+    "payload": {
+        "settings": {
+            "appendComponentStack": true,
+            "breakOnConsoleErrors": false,
+            "showInlineWarningsAndErrors": true,
+            "hideConsoleLogsInStrictMode": false
+        }
+    }
+}
+```
+
+**react-devtools-content-script**
+```js
+{
+    "source": "",
+    "hello": true
+}
+```
+
+**overview log on child page console**
+![child-page](/static/images/2025/06/16/child-page.png)
+
+
+#### main.html & child.html code
+![main-iframe-code](/static/images/2025/06/16/main-iframe-code.png)
+
+# 總結
+
+1. 使用 `postMessage` 可以在不同視窗或 iframe 之間進行跨域通訊
+2. 在父頁面中，可以透過 `iframe.contentWindow.postMessage()` 發送訊息
+3. 在子頁面中，需要監聽 `message` 事件來接收訊息
+4. 訊息內容可以包含任何可序列化的資料
+5. 可以透過 `event.origin` 檢查訊息的來源，增加安全性
