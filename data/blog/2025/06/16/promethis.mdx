@@ -1,0 +1,54 @@
+---
+title: JavaScript 錯誤處理：throw error vs throw new Error 的差異
+date: '2025-06-14'
+tags: ['JavaScript']  
+draft: false
+summary: 'JavaScript 中 throw error 和 throw new Error 的差異，以及 Error 物件的重要屬性'
+authors: ['YongChen']
+---
+讓我為您解釋這些重要的監控和度量相關概念：
+
+1. **Metrics（度量）**：
+- Metrics 是用來衡量和監控系統性能的數值指標
+- 在程式碼中，我們可以看到幾個重要的 metrics：
+  - `http_request_duration_ms`：用來追蹤 HTTP 請求的處理時間
+  - 這些 metrics 可以幫助我們了解系統的運行狀況，例如：
+    - 請求處理時間
+    - 請求數量
+    - 錯誤率
+    - 系統資源使用情況
+
+2. **Prometheus**：
+- Prometheus 是一個開源的監控和告警系統
+- 在程式碼中，我們使用 `prom-client` 套件來實現 Prometheus 的監控功能
+- 主要功能：
+  - 收集和存儲時間序列數據
+  - 提供查詢語言（PromQL）來分析這些數據
+  - 支援告警功能
+  - 可以與 Grafana 等視覺化工具整合
+
+3. **MetricsServer**：
+- 在程式碼中，`setupMetricsServer` 函數建立了一個專門的 Express 伺服器來提供 metrics 數據
+- 主要特點：
+  - 運行在 4001 端口
+  - 提供 `/metrics` 端點
+  - 當訪問 `/metrics` 時，會返回所有收集到的監控數據
+  - 這些數據可以被 Prometheus 伺服器定期抓取
+
+在您的程式碼中，我們可以看到具體的實現：
+```javascript
+const httpRequestDurationMicroseconds = new Prometheus.Histogram({
+    name: 'http_request_duration_ms',
+    help: 'Duration of HTTP requests in ms',
+    labelNames: ['method', 'route', 'statusCode'],
+    buckets: [0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024, 2.048],
+});
+```
+這段程式碼建立了一個 Histogram 類型的 metric，用來追蹤 HTTP 請求的處理時間，並按照不同的方法、路由和狀態碼進行分類。
+
+這些監控工具和指標對於：
+- 系統性能監控
+- 問題診斷
+- 容量規劃
+- 服務品質保證
+都非常重要。
