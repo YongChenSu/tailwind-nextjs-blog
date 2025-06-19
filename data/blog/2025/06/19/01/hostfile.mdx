@@ -1,0 +1,80 @@
+---
+title: 'macOS Finder 前往資料夾快捷鍵：⌘ + ⇧ + G'
+date: '2025-06-16'
+tags: ['macOS', 'Finder']  
+draft: false
+summary: '介紹 macOS Finder 中「前往資料夾」功能的快捷鍵使用方法，這個功能可以快速導航到系統中的任何資料夾路徑。'
+authors: ['YongChen']
+---
+
+
+1. 127.0.0.1
+定義：IPv4 的「環回（loopback）」位址，專門用來讓一臺主機跟自己通訊。
+
+作用：任何發送到 127.0.0.1 的網路請求，都會留在本機，不會真的發到網際網路。
+
+2. hosts 檔案
+位置
+
+Windows：C:\Windows\System32\drivers\etc\hosts
+
+macOS / Linux：/etc/hosts
+
+功能：在 DNS 查詢之前，用來把「主機名稱（hostname）」對應到「IP 位址」。
+
+格式：
+
+```
+<IP 位址>    <主機名稱>    # 註解
+127.0.0.1     localhost
+192.168.1.10  myapp.local
+```
+
+3. localhost
+定義：預設的主機名稱，用於指向「本機」的網路介面。
+
+對應關係：透過 hosts 檔案（或作業系統內建設定），localhost 會被解析（resolve）到 IP 127.0.0.1。
+
+三者的關係
+解析流程
+
+應用程式向 OS 發起對 localhost 的連線請求。
+
+OS 先檢查 /etc/hosts（或相應位置）的條目，若有 localhost → 127.0.0.1，就直接回傳該 IP。
+
+若 hosts 檔案沒有對應，再交由 DNS 伺服器解析（一般情況下 localhost 不會走 DNS）。
+
+為什麼需要這麼做
+
+快速測試：開發時常用 localhost:3000、localhost:8000 來測試 Web 服務，所有流量都留在本機，不用真實網路。
+
+安全性：避免把本機服務誤公開到外部網路。
+
+自訂映射：除了 localhost，你也可以在 hosts 檔案裡新增其它名稱（如 myapp.local）一併對應到 127.0.0.1。
+
+常見誤區
+
+把 localhost 寫成其它 IP（如 127.0.1.1）可能會造成某些工具無法正確偵測「本機」。
+
+修改 hosts 檔案需管理員 / sudo 權限，且修改完通常要重啟瀏覽器或清除 DNS 快取才能生效。
+
+總結
+
+127.0.0.1 是本機環回地址
+
+hosts 檔案用來手動將「名稱」對應到「IP」
+
+localhost 預設會在 hosts 檔案裡對應到 127.0.0.1，因此指的就是「這臺電腦自己」。
+
+## 因為要設定 localhost 轉導
+`/private/etc/hosts`
+
+## 前往資料夾 (Go to Folder…)
+
+在 macOS 的 Finder 中，有一個非常實用的功能叫做「前往資料夾」，可以讓你快速導航到系統中的任何資料夾路徑。
+
+### 快捷鍵
+使用以下快捷鍵來開啟「前往資料夾」對話框：
+```
+⌘ + ⇧ + G
+```
