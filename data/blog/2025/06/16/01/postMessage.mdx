@@ -91,8 +91,11 @@ Main Page 會載入 Child iframe，並且透過 postMessage 傳送訊息給 Chil
 
 # 總結
 
+## 核心概念
 1. 使用 `postMessage` 可以在不同視窗或 iframe 之間進行跨域通訊
-2. 在父頁面中，可以透過 `iframe.contentWindow.postMessage()` 發送訊息
-3. 在子頁面中，需要監聽 `message` 事件來接收訊息
-4. 訊息內容可以包含任何可序列化的資料
-5. 可以透過 `event.origin` 檢查訊息的來源，增加安全性
+2. 使用 `iframe.addEventListener('load', callback)` 監聽載入完成
+3. 在父頁面中，可以透過 `iframe.contentWindow.postMessage()` 發送訊息
+4. 在子頁面中，需要監聽 `message` 事件來接收訊息
+5. 訊息內容可以包含任何可序列化的資料
+6. 可以透過 `event.origin` 檢查訊息的來源，增加安全性
+
