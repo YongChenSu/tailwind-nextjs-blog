@@ -6,17 +6,21 @@ draft: false
 summary: ""
 authors: ['YongChen']
 ---
-# Jest HTML Reporter 問題解決方案
+# Jest HTML Reporter 問題、解決方案
 
 ## 先稍微說明一下 e2e 專案
 有用到 Puppeteer 用來做 e2e test，再與 jest-html-reporters 整合
 
-## 遇到的問題
+## 最初遇到的問題
 在 GoodJob 職場透明化運動中 e2e 專案，我發了一個 PR
-1. 修正用瀏覽器打開測試報告 (jest_html_reporters.html) 後畫面無法顯示 (畫面一片空白)。
-2. 新增報告標題。
+**修正用瀏覽器打開測試報告 (jest_html_reporters.html) 後畫面無法顯示 (畫面一片空白)。**
 
-## 問題描述
+file change 的部分很簡單：`"inlineSource": true`，改設定而已，重新產生報告後即可用 Live Server 在 local 查看報告
+
+## PR 回饋
+其他開發夥伴跟我說，設定改回，改用 `python3 -m http.server 3000`，但依舊無法開啟瀏覽器看報告
+
+## 下一個問題描述
 改用 `python3 -m http.server 3000`，瀏覽器畫面還是會一片空白，有以下 error
 
 ```js
