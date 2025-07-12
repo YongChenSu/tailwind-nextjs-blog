@@ -1,0 +1,54 @@
+---
+title: GoodJob E2E 
+date: '2025-07-12'
+tags: ['e2e', 'Puppeteer', 'jest']  
+draft: false
+summary: ""
+authors: ['YongChen']
+---
+# Jest HTML Reporter 問題解決方案
+
+## 先稍微說明一下 e2e 專案
+有用到 Puppeteer 用來做 e2e test，再與 jest-html-reporters 整合
+
+## 遇到的問題
+在 GoodJob 職場透明化運動中 e2e 專案，我發了一個 PR
+1. 修正用瀏覽器打開測試報告 (jest_html_reporters.html) 後畫面無法顯示 (畫面一片空白)。
+2. 新增報告標題。
+
+## 問題描述
+改用 `python3 -m http.server 3000`，瀏覽器畫面還是會一片空白，有以下 error
+
+```js
+jest_html_reporters.html:1 Uncaught (in promise) SyntaxError: Expected ',' or '}' after property value in JSON at position 592446 (line 1 column 592447)
+```
+
+我的操作步驟
+1. 還原成原始設定：改回 `"inlineSource": true`。
+2. `npm run test` 產生最新的 `jest_html_reporters.html`。
+3. `python3 -m http.server 3000` 。
+
+比對了 dev 與 local 的 jest_html_reporters.html 的 network preview，排版與內容是有差異的。
+
+左圖：`https://${GOOD_JOB_URL}/dev/jest_html_reporters.html`
+右圖：local 3000
+
+![](/static/images/2025/07/12/compare.png)
+
+問了一下 Chat GPT 當 
+`"inlineSource": true` 時，產生的 html 檔案過大導致 browser 的 memory 不足而無法正常查看。
+`"inlineSource": false` 時，產生的 html 會引入另一支新產生的 js 檔案，所以檔案不會過大，可以正常查看。
+
+但不能解釋 `https://${GOOD_JOB_URL}/dev/jest_html_reporters.html`，這也是 `"inlineSource": true` 卻能正常查看。
+
+#### 所以猜測：
+1. 是不是 `python3 -m http.server 3000` 在處理大檔案的時候截斷了 script 導致的？
+2. 上次開會有提到瀏覽器安全性問題，若是這個問題的話，有其他關鍵字可以跟我說一下嗎？我來查查為什麼。
+
+**以上問題不影響修正測項，只是有點好奇為何 `"inlineSource": true` 時，無法用 `python3 -m http.server 3000` 或是用 VSCode 套件 Live Server 來正常開啟瀏覽器查看報告。**
+
+## 解決方案 & 小結
+若想要在本地端就查看報告的話
+1. "inlineSource": false,
+2. npm run test
+即可在本地查看報告
