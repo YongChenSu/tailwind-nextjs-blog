@@ -1,0 +1,38 @@
+---
+title: docker 指令解釋
+date: '2025-07-22'
+tags: ['docker']
+draft: false
+summary: "docker 的一些基本指令介紹"
+authors: ['YongChen']
+---
+因為在寫 e2e test 時需要用到 docker 的一些指令，但不是很熟便學習記錄一下。
+
+#### 讓 dist 資料夾具備「所有人都可以寫入（write）」的權限。
+`chmod a+w dist`
+
+#### 指令意思拆解
+`chmod`: 是改變檔案/資料夾權限的指令。
+
+`a+w`: 的意思是「所有使用者（a = all）新增寫入權限（+w）」
+
+`dist`: 是目標資料夾。
+
+
+#### 用 Puppeteer 官方 Docker Image 執行測試
+`docker run -ti --rm -v $PWD:/app -w /app ghcr.io/puppeteer/puppeteer:24.3.0 npm run test`
+
+#### docker 指令步驟拆解
+`docker run`：執行一個容器
+
+`-ti`：提供互動式終端機（通常是開發者操作才需要）
+
+`--rm`：執行結束後自動刪除這個 container（保持乾淨）
+
+`-v $PWD:/app`：把目前目錄（$PWD）掛載到容器內的 /app，意思是容器會看到你現在專案的資料夾。
+
+`-w /app`：指定容器內的工作目錄是 /app
+
+`ghcr.io/puppeteer/puppeteer:24.3.0`：這是你用的 Docker image（包含 Puppeteer 執行環境）
+
+`npm run test`：這是你在容器裡要執行的指令（通常是跑 Vitest / Jest）
