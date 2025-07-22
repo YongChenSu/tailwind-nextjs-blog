@@ -1,0 +1,66 @@
+---
+title: git worktree
+date: '2025-07-22'
+tags: ['git worktree']
+draft: false
+summary: "之前就聽說 git worktree 很好用，有稍微學過，但一直沒有常用，直到再次被 threads 的貼文 打到，好好來學一下"
+authors: ['YongChen']
+---
+之前就聽說 git worktree 很好用，有稍微學過，但一直沒有常用，直到再次被 [threads 的貼文](https://www.threads.com/@min.biz/post/DMC7ZwJpKHS?xmt=AQF0YK2jDccSZu5iWtjqYKmct0D_x0V3P73sYGEaBoe8TQ)打到，還有開始用 claude code 想要更多工處理事情，特此記錄一下 git work tree 的使用方式。
+
+## git worktree 介紹
+git worktree 用來讓同一個 repo 同時 checkout 多個分支到不同的目錄。這對於以下情境特別有用：
+
+1. 想在同一個專案的不同分支上同時開發（例如：修 bug 用 main 分支，開發新功能用 feature 分支）
+
+2. 想要避免在切換分支時因為工作目錄未提交而遇到阻礙
+
+3. 想在 CI/CD 或腳本中快速處理多個版本的 code
+
+#### 基本概念
+通常，一個 Git repo 只有一個工作目錄（working directory），只能檢出一個分支。但透過 git worktree，你可以：
+
+在不同目錄中 checkout 不同分支（或 commit）
+
+共享相同的 .git 物件（節省空間）
+
+#### 常用指令
+**查看現有 worktrees**
+`git worktree list`
+
+**新增一個 worktree 並切換分支**
+`git worktree add ../climbing-beta-scraper-all -b feat/scraper-all`
+
+這會：
+在 `../climbing-beta-scraper-all` 建立一個新資料夾
+checkout `feat/scraper-all` 到該資料夾
+
+**移除 worktree**
+git worktree remove ../my-feature-dir
+
+
+移除目錄與對應的 worktree 記錄（不會刪除分支）
+
+⚠️ 注意事項
+同一個分支不能在多個 worktree 同時 checkout
+
+worktree 不建議放在原 repo 的子目錄中（可能造成混亂）
+
+建議使用 ../ 開頭放在 repo 外層目錄
+
+#### 實用場景範例
+範例：同時開發 main 與 feature 分支
+
+1. 切換到 main branch
+`cd my-repo/`
+`git checkout main`
+
+2. 建立 feature 分支 worktree
+`git worktree add -b feature ../my-repo-feature main`
+現在有兩個資料夾：
+my-repo          → 在 main 分支
+my-repo-feature  → 在 feature 分支
+這樣可以同時開發並互不干擾，非常適合多人協作或複雜 feature 的平行開發。
+
+## 感想
+真的好用耶，除了修 bug 以外，之後搭配 claude code。
