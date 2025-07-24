@@ -10,7 +10,7 @@ const siteMetadata = {
   siteRepo: 'https://github.com/timlrx/tailwind-nextjs-starter-blog',
   siteLogo: `${process.env.BASE_PATH || ''}/static/images/logo.png`,
   socialBanner: `${process.env.BASE_PATH || ''}/static/images/twitter-card.png`,
-  github: 'hhttps://github.com/YongChenSu',
+  github: 'https://github.com/YongChenSu',
   linkedin: 'https://www.linkedin.com/in/harry-su-854898174/',
   locale: 'en-US',
   // set to true if you want a navbar fixed to the top
