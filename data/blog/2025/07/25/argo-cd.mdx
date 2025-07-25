@@ -1,0 +1,31 @@
+---
+title: Argo CD
+date: '2025-07-25'
+tags: ['Argo CD', 'Kubernetes']
+draft: false
+summary: "Argo CD 是一個 GitOps 工具，目前常用於看 log，覺得挺方便的"
+authors: ['YongChen']
+---
+工作上有用到 Argo CD，目前是用來部署的時候檢查是否有部署上去，image 是否更新並對應 gitlab 的 pipeline
+還有查看 log，覺得算是蠻方便的
+
+![Argo cd](/static/images/2025/07/25/argocd-ui.png)
+
+### Argo CD 是一個 GitOps 工具
+
+**看官網先記錄一下 Argo CD 的 Core Concept**
+- Application（應用程式）：由 manifest 定義的一組 Kubernetes 資源。這是一個自定義資源定義（CRD）。
+- Application source type（應用來源類型）：用來建置應用程式的工具類型。
+- Target state（目標狀態）：應用程式的理想狀態，由 Git 儲存庫中的檔案所表示。
+- Live state（實際狀態）：應用程式當前在叢集中的實際狀態。例如，目前部署了哪些 pods 等資源。
+- Sync status（同步狀態）：實際狀態是否與目標狀態相符。也就是說，部署的應用程式是否與 Git 中所描述的一致？
+- Sync（同步）：讓應用程式朝向其目標狀態的過程，例如將變更套用至 Kubernetes 叢集。
+- Sync operation status（同步操作狀態）：同步是否成功。
+- Refresh（重新整理）：將 Git 中最新的程式碼與實際狀態進行比較，找出差異。
+- Health（健康狀態）：應用程式是否運作正常？是否能夠處理請求？
+- Tool（工具）：從一個檔案目錄中產生 manifest 的工具，例如 Kustomize。請參考 Application Source Type。
+- Configuration management tool（設定管理工具）：請參考 Tool。
+- Configuration management plugin（設定管理外掛）：自訂的工具。
+
+
+[Argo CD 官網](https://argo-cd.readthedocs.io/en/stable/)
