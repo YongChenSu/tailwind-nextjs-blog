@@ -1,8 +1,20 @@
 {
-  "javascript": 2,
-  "github-action": 1,
+  "js": 4,
+  "typescript": 3,
   "https": 1,
   "ssh": 1,
-  "typescript": 3,
-  "js": 1
+  "github-action": 1,
+  "try-catch": 1,
+  "argo-cd": 1,
+  "kubernetes": 1,
+  "postmessage": 1,
+  "iframe": 1,
+  "localhost": 1,
+  "mac-tips": 1,
+  "e2e": 1,
+  "puppeteer": 1,
+  "jest": 1,
+  "git": 1,
+  "docker": 1,
+  "essay": 2
 }
