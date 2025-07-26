@@ -122,6 +122,68 @@
 }
 
 @layer utilities {
+  /* Card hover enhancements */
+  .card-hover-shadow {
+    box-shadow: 
+      0 25px 50px -12px rgba(0, 0, 0, 0.25),
+      0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  
+  .dark .card-hover-shadow {
+    box-shadow: 
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+
+  /* Card backdrop blur enhancement for better readability */
+  .card-backdrop {
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+  }
+
+  /* Smooth hover animations */
+  .hover-lift {
+    will-change: transform;
+  }
+
+  /* Touch device optimizations */
+  @media (hover: none) {
+    .hover-lift:active {
+      transform: scale(0.98) translateY(1px);
+    }
+  }
+
+  /* Custom scrollbar for better UX */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-gray-100);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-gray-400);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gray-500);
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-gray-800);
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-gray-600);
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gray-500);
+  }
+
   /* Rock wall background utility */
   .bg-rock-wall {
     background-image: 
