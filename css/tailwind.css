@@ -56,6 +56,20 @@
   --color-warning-content: oklch(41% 0.112 45.904);
   --color-error: oklch(70% 0.191 22.216);
   --color-error-content: oklch(39% 0.141 25.723);
+  
+  /* Rock wall colors - earth tones and stone colors */
+  --color-rock-50: oklch(0.96 0.008 30);
+  --color-rock-100: oklch(0.92 0.012 25);
+  --color-rock-200: oklch(0.85 0.018 20);
+  --color-rock-300: oklch(0.75 0.025 18);
+  --color-rock-400: oklch(0.65 0.032 15);
+  --color-rock-500: oklch(0.55 0.038 12);
+  --color-rock-600: oklch(0.45 0.042 10);
+  --color-rock-700: oklch(0.35 0.045 8);
+  --color-rock-800: oklch(0.25 0.048 5);
+  --color-rock-900: oklch(0.15 0.052 2);
+  --color-rock-950: oklch(0.08 0.055 0);
+  
   --radius-selector: 2rem;
   --radius-field: 0.5rem;
   --radius-box: 1rem;
@@ -108,6 +122,144 @@
 }
 
 @layer utilities {
+  /* Rock wall background utility */
+  .bg-rock-wall {
+    background-image: 
+      /* Fine texture overlay */
+      radial-gradient(circle at 25% 25%, var(--color-rock-600) 1px, transparent 1px),
+      radial-gradient(circle at 75% 75%, var(--color-rock-700) 1px, transparent 1px),
+      radial-gradient(circle at 40% 80%, var(--color-rock-500) 0.5px, transparent 0.5px),
+      radial-gradient(circle at 80% 20%, var(--color-rock-600) 0.5px, transparent 0.5px),
+      /* Large rock patterns - responsive sizes */
+      radial-gradient(ellipse 15vw 8vw at 50% 20%, var(--color-rock-400) 20%, transparent 50%),
+      radial-gradient(ellipse 12vw 16vw at 20% 60%, var(--color-rock-500) 15%, transparent 45%),
+      radial-gradient(ellipse 14vw 10vw at 80% 80%, var(--color-rock-600) 18%, transparent 48%),
+      radial-gradient(ellipse 8vw 12vw at 90% 30%, var(--color-rock-400) 22%, transparent 52%),
+      /* Base gradient */
+      linear-gradient(135deg, var(--color-rock-300) 0%, var(--color-rock-500) 50%, var(--color-rock-400) 100%);
+    background-size: 
+      4px 4px,
+      6px 6px,
+      3px 3px,
+      5px 5px,
+      30vw 24vw,
+      28vw 32vw,
+      30vw 22vw,
+      20vw 28vw,
+      100% 100%;
+    background-position:
+      0 0,
+      2px 2px,
+      1px 3px,
+      3px 1px,
+      0% 0%,
+      100% 0%,
+      0% 100%,
+      100% 100%,
+      0 0;
+    position: relative;
+    min-height: 100%;
+  }
+
+  /* Ensure minimum sizes for very small screens */
+  @media (max-width: 640px) {
+    .bg-rock-wall {
+      background-size: 
+        3px 3px,
+        5px 5px,
+        2px 2px,
+        4px 4px,
+        120px 96px,
+        112px 128px,
+        120px 88px,
+        80px 112px,
+        100% 100%;
+    }
+  }
+
+  .bg-rock-wall::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      /* Subtle noise texture */
+      radial-gradient(circle at 30% 40%, rgba(0,0,0,0.05) 1px, transparent 1px),
+      radial-gradient(circle at 70% 80%, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 15px 15px, 20px 20px;
+    background-position: 0 0, 10px 10px;
+    pointer-events: none;
+  }
+
+  /* Dark mode rock wall */
+  .dark .bg-rock-wall {
+    background-image: 
+      /* Fine texture overlay - darker */
+      radial-gradient(circle at 25% 25%, var(--color-rock-800) 1px, transparent 1px),
+      radial-gradient(circle at 75% 75%, var(--color-rock-900) 1px, transparent 1px),
+      radial-gradient(circle at 40% 80%, var(--color-rock-700) 0.5px, transparent 0.5px),
+      radial-gradient(circle at 80% 20%, var(--color-rock-800) 0.5px, transparent 0.5px),
+      /* Large rock patterns - darker and responsive */
+      radial-gradient(ellipse 15vw 8vw at 50% 20%, var(--color-rock-600) 20%, transparent 50%),
+      radial-gradient(ellipse 12vw 16vw at 20% 60%, var(--color-rock-700) 15%, transparent 45%),
+      radial-gradient(ellipse 14vw 10vw at 80% 80%, var(--color-rock-800) 18%, transparent 48%),
+      radial-gradient(ellipse 8vw 12vw at 90% 30%, var(--color-rock-600) 22%, transparent 52%),
+      /* Base gradient - darker */
+      linear-gradient(135deg, var(--color-rock-700) 0%, var(--color-rock-900) 50%, var(--color-rock-800) 100%);
+    background-size: 
+      4px 4px,
+      6px 6px,
+      3px 3px,
+      5px 5px,
+      30vw 24vw,
+      28vw 32vw,
+      30vw 22vw,
+      20vw 28vw,
+      100% 100%;
+  }
+
+  /* Ensure minimum sizes for dark mode on small screens */
+  @media (max-width: 640px) {
+    .dark .bg-rock-wall {
+      background-size: 
+        3px 3px,
+        5px 5px,
+        2px 2px,
+        4px 4px,
+        120px 96px,
+        112px 128px,
+        120px 88px,
+        80px 112px,
+        100% 100%;
+    }
+  }
+
+  .dark .bg-rock-wall::before {
+    background: 
+      /* Subtle noise texture for dark mode */
+      radial-gradient(circle at 30% 40%, rgba(255,255,255,0.02) 1px, transparent 1px),
+      radial-gradient(circle at 70% 80%, rgba(0,0,0,0.08) 1px, transparent 1px);
+  }
+
+  /* Content overlay for readability */
+  .rock-wall-overlay {
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(255, 255, 255, 0.88) 100%
+    );
+  }
+
+  .dark .rock-wall-overlay {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.85) 0%,
+      rgba(0, 0, 0, 0.78) 100%
+    );
+  }
+
   .prose {
     & a {
       color: var(--color-primary-500);
