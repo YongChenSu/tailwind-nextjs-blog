@@ -10,7 +10,7 @@ export default function Home({ posts }) {
   return (
     <>
       {/* Rock wall background container */}
-      <div className="bg-rock-wall -mx-4 sm:-mx-6 xl:mx-0 xl:-ml-20 xl:-mr-20 rounded-lg xl:rounded-xl overflow-hidden">
+      <div className="bg-rock-wall -mx-4 overflow-hidden rounded-lg sm:-mx-6 xl:mx-0 xl:-mr-20 xl:-ml-20 xl:rounded-xl">
         <div className="rock-wall-overlay px-4 sm:px-6 xl:px-20">
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             <div className="space-y-2 pt-6 pb-8 md:space-y-5">
@@ -76,7 +76,7 @@ export default function Home({ posts }) {
         </div>
       </div>
       {posts.length > MAX_DISPLAY && (
-        <div className="flex justify-end text-base leading-6 font-medium mt-6">
+        <div className="mt-6 flex justify-end text-base leading-6 font-medium">
           <Link
             href="/blog"
             className="text-neutral hover:text-primary-600 dark:hover:text-primary-400"
