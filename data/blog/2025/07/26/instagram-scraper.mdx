@@ -1,0 +1,98 @@
+---
+title: 使用 instagram-posts-scraper 爬取 Instagram 貼文 — 新手實作與踩坑紀錄
+date: '2025-07-26'
+tags: ['Python', 'scraper']
+draft: false
+summary: "這篇文章介紹使用 instagram-posts-scraper 爬取 Instagram 貼文，還有初學 Python 的記錄"
+authors: ['YongChen']
+---
+
+## 專案來源
+**GitHub Repository:** [instagram-posts-scraper](https://github.com/FaustRen/instagram-posts-scraper)
+
+## 前言
+因為想做某個 Project，開始試著用 claude code 爬 IG，但一直沒很順利
+可能是模型限制，一直跟我說無法幫我爬 IG。
+
+所以改個方式，搜尋一下別人的 repo，有個可以應用的 repo 參考蠻不錯的，也從基礎開始學 Python。
+
+也使用 [deepwiki](https://deepwiki.com/FaustRen/instagram-posts-scraper?tab=readme-ov-file) 來看整個專案架構。
+
+## 前置準備
+1. **安裝 Python 與 pip**
+   使用 macOS 預設會有 python3，確認安裝與版本：
+   ```bash
+   python3 --version
+   ```
+   若 pip 指令找不到，可以試試：
+   ```bash
+   pip3 --version
+   ```
+
+2. **建立虛擬環境（推薦）**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+   執行後 terminal 前面會出現 `(venv)`，代表你已啟用虛擬環境。
+
+## 安裝必要套件
+### 安裝主要套件
+```bash
+pip3 install instagram-posts-scraper
+```
+若遇到 `ModuleNotFoundError`，則補裝以下依賴套件：
+```bash
+pip3 install selenium
+pip3 install seleniumbase
+```
+
+### 小技巧：建立 `requirements.txt`（可重複使用）
+```txt
+selenium
+seleniumbase
+instagram-posts-scraper
+```
+然後一次安裝：
+```bash
+pip3 install -r requirements.txt
+```
+
+## 撰寫並執行測試程式
+在專案根目錄（與 venv 同層）新增 `scrape.py`：
+```python
+print("🚀 Starting scrape.py...")
+
+from instagram_posts_scraper.instagram_posts_scraper import InstaPeriodScraper
+
+target_info = {"username": "USER_NAME", "days_limit": 60}
+ig_posts_scraper = InstaPeriodScraper()
+res = ig_posts_scraper.get_posts(target_info=target_info)
+
+print(f"✅ Total {len(res)} posts scraped.\n")
+
+for post in res:
+    print(post)
+```
+
+### 執行程式
+```bash
+python3 scrape.py
+```
+預期會看到：
+```bash
+🚀 Starting scrape.py...
+✅ Total 20 posts scraped.
+{貼文資訊...}
+```
+
+## 常見錯誤與解法
+| 錯誤訊息 | 解法 |
+| -------- | ---- |
+| zsh: command not found: pip | 使用 pip3 或安裝 pip |
+| ModuleNotFoundError: No module named 'selenium' | `pip3 install selenium` |
+| ModuleNotFoundError: No module named 'seleniumbase' | `pip3 install seleniumbase` |
+| NameError: name 'posts' is not defined | 使用 `res` 而不是錯誤變數名 |
+
+## 小結
+用別人的 repo 來學習 python 練習，雖然是基礎建設，但可以一開始 run 的時候挺開心的，後續被 Cloudflare 擋掉了，就再研究看看吧～
