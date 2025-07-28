@@ -60,7 +60,7 @@ github.head_ref: feat/fix-prod-e2e
 
 **只能說自己對 PR 中的 GitHub Actions 的運作跟語法還不夠熟，但這是個蠻不錯的經驗。**
 
-## 驗證前一個 job fail 會導致會續 job 無法執行嗎？
+## 驗證前一個 job fail 會導致後續 job 無法執行嗎？
 現在有正確的 `github.ref: refs/pull/58/merge`，所以故意讓 e2e test case fail，也就是讓 Test job fail，來檢查 `Rsync jest html reports` 這個 job 會不會被跳過？
 
 **驗證結果：只要沒有相依性，前一個 job fail，不會導致後一個 job 跳過**，之前一直跳過的原因是 `github.ref` 寫錯。
