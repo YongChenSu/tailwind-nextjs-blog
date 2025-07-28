@@ -1,0 +1,117 @@
+---
+title: GitHub Actions 分支條件判斷踩雷記錄
+date: '2025-07-28'
+tags: ['Github Actions']
+draft: false
+summary: "在使用 GitHub Actions 時，一直 skip job，直到多寫一個 debug 的 job 才釐清，本文記錄了一次實際遇到的問題和解決過程。"
+authors: ['YongChen']
+---
+在使用 GitHub Actions 時，一直 skip job，直到多寫一個 debug 的 job 才釐清，本文記錄了一次實際遇到的問題和解決過程。
+
+## 問題場景：Job 被 Skip
+在 GitHub Actions 工作流程中，我想要在特定分支 `feat/fix-prod-e2e` 上完整跑完 workflow
+
+修正前的 yaml 檔案：
+```yaml
+# main.yml 
+test-dev-site:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/puppeteer/puppeteer:24.3.0
+      env:
+        TO_TEST_SITE: DEV_SITE
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          npm install
+      - name: Test
+        run: |
+          npm test
+      - name: Rsync jest html reports
+        if: github.ref == 'refs/heads/feat/fix-prod-e2e'
+        uses: ./.github/rsync-action
+      - 
+```
+
+一開始以為 e2e test 測項中 fail 會導致後續 job 包含 `Rsync jest html reports` 無法執行，但**這是錯的**
+
+### 除錯方法
+多寫了一個 Debug ref 的 job
+
+```yaml
+- name: Debug ref
+  run: |
+    echo "github.ref: ${{ github.ref }}"
+    echo "github.ref_name: ${{ github.ref_name }}"
+    echo "github.head_ref: ${{ github.head_ref }}"
+```
+
+印出結果
+```
+github.ref: refs/pull/58/merge
+github.ref_name: 58/merge
+github.head_ref: feat/fix-prod-e2e
+```
+
+### 意外的發現
+印出結果顯示：`github.ref` 的值是 `'refs/pull/58/merge'`，而不是預期的 `'refs/heads/feat/fix-prod-e2e'`
+
+當在 **Pull Request** 中觸發 GitHub Actions 時，GitHub 會建立一個虛擬的合併參考：
+
+- `github.ref` = `refs/pull/{PR編號}/merge` (PR #58 的合併參考)
+
+只能說自己對 PR 中的 GitHub Actions 的運作還不夠熟，但這是個蠻不錯的經驗。
+
+## 驗證前一個 job fail 會導致會續 job 無法執行嗎？
+現在有正確的 `github.ref: refs/pull/58/merge`，所以故意讓 e2e test case fail，也就是讓 Test job 標記為 fail，檢查 `Rsync jest html reports` 這個 job 會不會被跳過
+
+**驗證結果：即便前一個 job fail，後一個 job 不會被跳過**
+
+## cancelled() 函數說明
+在修改成需求所要求的 yaml 前，先解釋一下條件中的 `cancelled()` 函數：
+
+### 功能說明
+- **回傳值**: Boolean (true/false)
+- **true**: 當工作流程被手動取消或因為其他原因被中止時
+- **false**: 當工作流程正常執行時
+
+### 常見的條件組合
+```yaml
+# 總是執行（除非被取消）
+if: !cancelled()
+
+# 只在成功時執行
+if: success()
+
+# 只在失敗時執行  
+if: failure()
+
+# 成功或失敗都執行，但不包括取消的情況
+if: !cancelled()
+
+# 總是執行（包括取消的情況）
+if: always()
+```
+
+在我的範例中，使用 `!cancelled()` 確保了只要工作流程沒被取消，無論測試是否通過，都會嘗試上傳測試報告。
+
+
+## 其他要注意的小地方
+Github Action 的介面，外層顯示執行時間為 0 秒，但實際上點開看詳細資料，表示有跑該 job，所以要注意一下並不是 0 秒就一定沒有執行。
+
+## 修正結果
+**feat/fix-prod-e2e**
+```yaml
+if: (!cancelled()) && github.head_ref == 'feat/fix-prod-e2e'
+```
+
+**Production**
+```yaml
+if: (!cancelled()) && github.head_ref == 'ref/head/main'
+```
+
+## 總結
+`github.ref`: 會指向 merge ref 而非發 PR 的分支 (`refs/pull/58/merge`)。
+`github.head_ref`: 才是分支名稱 (`feat/fix-prod-e2e`)。
+
