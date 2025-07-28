@@ -64,9 +64,9 @@ github.head_ref: feat/fix-prod-e2e
 只能說自己對 PR 中的 GitHub Actions 的運作還不夠熟，但這是個蠻不錯的經驗。
 
 ## 驗證前一個 job fail 會導致會續 job 無法執行嗎？
-現在有正確的 `github.ref: refs/pull/58/merge`，所以故意讓 e2e test case fail，也就是讓 Test job 標記為 fail，檢查 `Rsync jest html reports` 這個 job 會不會被跳過
+現在有正確的 `github.ref: refs/pull/58/merge`，所以故意讓 e2e test case fail，也就是讓 Test job fail，來檢查 `Rsync jest html reports` 這個 job 會不會被跳過？
 
-**驗證結果：即便前一個 job fail，後一個 job 不會被跳過**
+**驗證結果：只要沒有相依性，前一個 job fail，不會導致後一個 job 跳過**，之前一直跳過的原因是 `github.ref` 寫錯。
 
 ## cancelled() 函數說明
 在修改成需求所要求的 yaml 前，先解釋一下條件中的 `cancelled()` 函數：
@@ -94,16 +94,12 @@ if: !cancelled()
 if: always()
 ```
 
-在我的範例中，使用 `!cancelled()` 確保了只要工作流程沒被取消，無論測試是否通過，都會嘗試上傳測試報告。
-
-
-## 其他要注意的小地方
-Github Action 的介面，外層顯示執行時間為 0 秒，但實際上點開看詳細資料，表示有跑該 job，所以要注意一下並不是 0 秒就一定沒有執行。
+在範例中使用 `!cancelled()` 只要工作流程沒被取消，無論測試是否通過，都會跑 `Rsync jest html reports` 上傳 test report。
 
 ## 修正結果
-**feat/fix-prod-e2e**
+**feat/fix-prod-e2e** (PR 編號 58)
 ```yaml
-if: (!cancelled()) && github.head_ref == 'feat/fix-prod-e2e'
+if: (!cancelled()) && github.head_ref == ''refs/pull/58/merge''
 ```
 
 **Production**
@@ -111,7 +107,9 @@ if: (!cancelled()) && github.head_ref == 'feat/fix-prod-e2e'
 if: (!cancelled()) && github.head_ref == 'ref/head/main'
 ```
 
-## 總結
-`github.ref`: 會指向 merge ref 而非發 PR 的分支 (`refs/pull/58/merge`)。
-`github.head_ref`: 才是分支名稱 (`feat/fix-prod-e2e`)。
-
+## 總結 & 要注意的小地方
+- 找問題時可以新增一個 Debug job，印出變數值，釐清問題點。
+- 只要沒有相依性，前一個 job fail，不會導致後一個 job 跳過。
+- `github.ref`: 會指向 merge ref 而非發 PR 的分支 (`refs/pull/58/merge`)，`github.head_ref`: 才是分支名稱 (`feat/fix-prod-e2e`)。
+- `!cancelled()`：只要不是取消，無論成功或失敗都執行。
+- Github Action 的介面，外層顯示執行時間為 0 秒，但實際上點開看詳細資料，表示有跑該 job，所以要注意並不是 0 秒就沒有執行。
