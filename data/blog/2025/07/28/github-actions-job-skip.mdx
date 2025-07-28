@@ -31,13 +31,10 @@ test-dev-site:
       - name: Rsync jest html reports
         if: github.ref == 'refs/heads/feat/fix-prod-e2e'
         uses: ./.github/rsync-action
-      - 
 ```
 
-一開始以為 e2e test 測項中 fail 會導致後續 job 包含 `Rsync jest html reports` 無法執行，但**這是錯的**
-
-### 除錯方法
-多寫了一個 Debug ref 的 job
+### 新增 Debug ref Job
+因爲修改的過程中 CI 一直 fail，為了釐清問題，多寫了一個 Debug ref 的 job
 
 ```yaml
 - name: Debug ref
@@ -61,7 +58,7 @@ github.head_ref: feat/fix-prod-e2e
 
 - `github.ref` = `refs/pull/{PR編號}/merge` (PR #58 的合併參考)
 
-只能說自己對 PR 中的 GitHub Actions 的運作還不夠熟，但這是個蠻不錯的經驗。
+**只能說自己對 PR 中的 GitHub Actions 的運作跟語法還不夠熟，但這是個蠻不錯的經驗。**
 
 ## 驗證前一個 job fail 會導致會續 job 無法執行嗎？
 現在有正確的 `github.ref: refs/pull/58/merge`，所以故意讓 e2e test case fail，也就是讓 Test job fail，來檢查 `Rsync jest html reports` 這個 job 會不會被跳過？
@@ -108,8 +105,8 @@ if: (!cancelled()) && github.head_ref == 'ref/head/main'
 ```
 
 ## 總結 & 要注意的小地方
-- 找問題時可以新增一個 Debug job，印出變數值，釐清問題點。
+- 找問題時可以新增一個 Debug job，印出變數值，快速釐清問題點。
 - 只要沒有相依性，前一個 job fail，不會導致後一個 job 跳過。
-- `github.ref`: 會指向 merge ref 而非發 PR 的分支 (`refs/pull/58/merge`)，`github.head_ref`: 才是分支名稱 (`feat/fix-prod-e2e`)。
-- `!cancelled()`：只要不是取消，無論成功或失敗都執行。
+- `github.ref` 會指向 merge ref，並非發 PR 的分支 (`github.ref: refs/pull/58/merge`)。`github.head_ref` 才是分支名稱 (`github.head_ref: feat/fix-prod-e2e`)。
+- `!cancelled()`：只要不是「取消」，無論成功或失敗都執行。
 - Github Action 的介面，外層顯示執行時間為 0 秒，但實際上點開看詳細資料，表示有跑該 job，所以要注意並不是 0 秒就沒有執行。
