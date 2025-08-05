@@ -1,0 +1,95 @@
+---
+title: Node.js 環境變數載入順序解析：cross-env 與 dotenv 的交互作用
+date: '2025-07-28'
+tags: ['Node.js', 'Environment Variables', 'dotenv', 'cross-env']
+draft: false
+summary: "深入解析 Node.js 中 cross-env 與 dotenv 的環境變數載入機制，了解為什麼 dotenv 預設不會覆寫已存在的環境變數，以及如何正確配置環境變數載入順序。"
+authors: ['YongChen']
+---
+# Node.js 環境變數載入順序解析：cross-env 與 dotenv 的交互作用
+
+剛好再設定環境變數時，遇到一個有點有趣的問題：
+- 在 script 中設定
+`"dev": "cross-env APP_ENV=local node server.js"`
+- 在 env.local 中設定 APP_ENV="local-app-env"
+
+**那最終會顯示 `local` 還是 `local-app-env`？**
+
+## 案例背景
+有以下的專案設定：
+### package.json
+```json
+{
+  "scripts": {
+    "dev": "cross-env APP_ENV=local node server.js"
+  }
+}
+```
+
+### .env.local
+```bash
+APP_ENV="local-app-env"
+```
+
+### 環境變數載入邏輯
+
+```javascript
+// next.config.js
+const path = require('path');
+const APP_ENV = process.env.APP_ENV || 'development';
+
+// 動態載入對應的 .env 檔案
+const envPath = path.resolve(__dirname, `.env.${APP_ENV}`);
+dotenv.config({ path: envPath });
+
+module.exports = {
+  env: {
+    APP_ENV: process.env.APP_ENV,
+  },
+};
+```
+
+## 最終結果
+dotenv 載入但不覆寫，因為 process.env.APP_ENV 已經被 cross-env 設定為 "local"，dotenv 會保持現有值不變。
+
+## 關鍵觀念
+### 1. dotenv 預設不會覆寫現有的環境變數
+在這個案例中，看到一個重要的概念：**dotenv 預設不會覆寫現有的環境變數**。
+
+```javascript
+// 預設行為：不覆寫現有環境變數
+dotenv.config({ path: envPath });
+
+// 如果想要覆寫現有環境變數
+dotenv.config({ path: envPath, override: true });
+```
+
+### 2. 載入順序的重要性
+環境變數的載入順序會直接影響最終的結果，但要注意 dotenv 的保護機制：
+
+1. 系統環境變數
+2. cross-env 設定的變數
+3. dotenv 載入的檔案內容（只設定尚未存在的變數）
+
+### 3. 避免循環依賴
+不要在 `.env` 檔案中重新定義用於選擇該檔案的環境變數：
+
+```bash
+# ❌ 不建議：在 .env.local 中重新定義 APP_ENV
+APP_ENV="something-else"
+
+# ✅ 建議：移除或保持一致
+# APP_ENV="local"
+```
+
+
+## 結論
+實際 log 出來後才知道以上的小知識，還算蠻有趣的。
+
+### 1. 核心要點
+1. **dotenv 的保護機制**：預設情況下，dotenv 不會覆寫已經存在的環境變數，這是一個重要的安全特性
+2. **載入順序的重要性**：cross-env 設定的變數會優先於 dotenv 載入的變數
+3. **避免循環依賴**：不要在環境檔案中重新定義用於選擇該檔案的環境變數
+
+### 2. 實際應用
+這在微服務架構、多環境部署、CI/CD 流程中特別重要，理解後能避免環境變數衝突，確保應用程式在不同環境中都能正確運行。
