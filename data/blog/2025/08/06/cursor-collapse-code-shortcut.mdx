@@ -1,0 +1,51 @@
+---
+title: "Cursor 編輯器中程式碼折疊快捷鍵的解決方案"
+date: '2025-08-06'
+tags: ['Cursor', 'VSCode', '快捷鍵', '程式碼折疊']
+draft: false
+summary: "在 Cursor 編輯器中，由於 Cmd+K 被 AI 功能佔用，無法使用原生的程式碼折疊快捷鍵。發現了 `keybindings.json` 這個很棒的 shortcut list"
+authors: ['YongChen']
+---
+
+Cursor 中 Cmd + K 的快捷鍵，可以直接輸入指令，透過 AI 修改區域內的程式碼，方便歸方便，但造成一個困擾是
+1. 全部折疊 code (`Cmd + K, Cmd + 0`) 
+2. 全部折疊 code (`Cmd + K, Cmd + J`)
+
+在 Cursor 中一旦用到 `cmd + k` 或是 `cmd + l` (開啟 Cursor Chat) 又或是 Cursor 獨有的 AI 功能佔用快捷鍵，原生的 VSCode 快捷鍵都無法使用。
+
+雖然折疊所有 code 不是很常用的功能，但還是有想全部折疊 code 的時候，故問 AI 尋求解決方案
+
+在找解答過程中，發現 `keybindings.json` (Default keybindings) 這支檔案中有所有目前快捷鍵的設定
+
+看到這支檔案，有一種「為什麼不早點發現」的遺憾，算蠻喜歡用快捷鍵的，希望有一天可以幾乎不用滑鼠操作功能、開發
+
+這支檔案中也告訴了我，Cursor 中要如何「全部折疊」、「全部展開」code
+
+## 解答
+```json
+// 全部折疊
+{ "key": "cmd+r cmd+0", "command": "editor.foldAll",
+                        "when": "editorTextFocus && foldingEnabled"
+},
+// 全部展開
+{
+  "key": "cmd+r cmd+j", "command": "editor.unfoldAll",
+                        "when": "editorTextFocus && foldingEnabled"
+},
+```
+
+其實就是組和鍵中的 k ，這個 key 被替換成 r 而已，還蠻好記的
+
+折疊收合、折疊展開當前區塊的 code，才是最實用的，順便也寫一下
+
+```json
+// 折疊當前區塊
+{
+  "key": "alt+cmd+[", "command": "editor.fold",
+                      "when": "editorTextFocus && foldingEnabled"
+},
+// 展開當前區塊
+{ "key": "alt+cmd+]", "command": "editor.unfold",
+                      "when": "editorTextFocus && foldingEnabled" },
+```
+
