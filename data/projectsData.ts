@@ -12,6 +12,12 @@ const projectsData: Project[] = [
     imgSrc: '/static/images/good-job-share.png',
     href: 'https://github.com/goodjoblife/GoodJobShare',
   },
+  {
+    title: 'rxjs-playground',
+    description: 'rxjs playground',
+    imgSrc: '/static/images/2025/08/demo.gif',
+    href: 'https://github.com/YongChenSu/rxjs-typescript-pokemon?tab=readme-ov-file',
+  },
 ]
 
 export default projectsData
