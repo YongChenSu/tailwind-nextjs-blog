@@ -44,7 +44,7 @@ const ThemeSwitch = () => {
     <button
       aria-label="Toggle theme"
       onClick={toggleTheme}
-      className="hover:text-primary-500 dark:hover:text-primary-400 flex items-center justify-center"
+      className="hover:text-primary-500 dark:hover:text-primary-400 flex cursor-pointer items-center justify-center transition-colors duration-200"
     >
       {mounted ? resolvedTheme === 'dark' ? <Moon /> : <Sun /> : <Blank />}
     </button>
