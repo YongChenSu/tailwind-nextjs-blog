@@ -22,7 +22,7 @@ const projectsData: Project[] = [
   {
     title: 'Creative Coding - Warm Noise',
     description: 'Warm Noise, 靈感來自於 Minecraft 中的熔岩，加上 noise 的變化',
-    imgSrc: '/static/images/2025/08/warm-noise.gif',
+    imgSrc: '/static/images/2025/08/warm-noise.png',
     href: 'https://openprocessing.org/sketch/1264279',
   },
 ]
