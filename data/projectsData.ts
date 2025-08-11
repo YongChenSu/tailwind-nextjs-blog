@@ -15,7 +15,7 @@ const projectsData: Project[] = [
   {
     title: 'rxjs-playground',
     description:
-      '學習 rxjs 小專案，了解什麼「觀察者 (Observable) 模式」。使用 pokemon 的公開資料，同時用 typescript 實作。',
+      '學習 rxjs 小專案，了解什麼「觀察者 (Observable) 模式」。使用 pokemon 的公開資料，同時用 Typescript 實作。',
     imgSrc: '/static/images/2025/08/rxjs-demo.gif',
     href: 'https://github.com/YongChenSu/rxjs-typescript-pokemon?tab=readme-ov-file',
   },
