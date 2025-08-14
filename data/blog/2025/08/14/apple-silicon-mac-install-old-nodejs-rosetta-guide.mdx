@@ -1,0 +1,75 @@
+---
+title: "Apple Silicon 與 Node.js 安裝那些事：深入理解 Rosetta、arch、arm64、i386"
+date: '2025-08-14'
+tags: ['Rosetta', 'arch', 'arm64', 'i386']
+draft: false
+summary: "由於在 Mac 中安裝相當舊版本的 node JS 的過程中，碰到一些問題，沒想到就順手了解 Rosetta、arch、arm64、i386 這些名詞的意義 💻。"
+authors: ['YongChen']
+---
+
+由於在 Mac 中安裝相當舊版本的 node JS 的過程中，碰到一些問題，沒想到就順手了解 Rosetta、arch、arm64、i386 這些名詞的意義 💻。
+
+# 什麼是 Rosetta？
+官方文件描述：「Rosetta 2 可讓配備 Apple 晶片的 Mac 使用專為配備 Intel 處理器的 Mac 所開發的 App。」
+
+**稍微詳細的解釋**
+Rosetta 是 Apple 為了協助 Mac 電腦在 架構過渡期間（從 Intel x86_64 轉向 Apple 自家晶片 ARM 架構，如 M1、M2）而推出的轉譯層（translation layer）。
+
+簡單說，它讓**原本只能在 Intel CPU 上執行的 App，也能在 Apple Silicon 上執行**。
+
+### 常見使用場景
+要執行的工具或 App 沒有支援 ARM 架構（例如某些老工具：nvm, node, docker, brew，尤其是它們早期版本）
+
+例如，在 M1 Mac 上想執行只支援 Intel 架構的 node 或 nvm：
+`arch -x86_64 zsh`
+這指令會啟動一個模擬 Intel 架構的 zsh 環境，並透過 Rosetta 執行。
+
+### 安裝方式
+如果系統提示 Rosetta 尚未安裝，可以用這條指令安裝：
+`softwareupdate --install-rosetta`
+
+# arch、arm64、i386 是什麼？
+**`arch` 是指令，而 `arm64`、`i386` 是 CPU 架構模式。**
+
+在 macOS（或其他類 Unix 系統）裡，`arch` 這個指令會顯示目前這個 shell（或程式）是在什麼 CPU 架構下執行。
+
+**arch 指令常見輸出**
+`arm64` → Apple Silicon（M1/M2/M3）原生模式
+
+`i386` → Intel x86_64 模式（在 Apple Silicon 上，通常是透過 Rosetta 轉譯執行）
+
+
+
+**`arch -x86_64 zsh`**
+意思是：用 Rosetta（x86_64 架構）啟動一個新的 zsh shell。這樣做可以在 Apple Silicon 上執行需要 Intel 架構的工具或二進位檔。
+
+**簡單來說**
+- `arch` → 查詢或指定執行程式的 CPU 架構
+- `arch -x86_64 <command>` → 以 Intel 模式跑這個 <command>
+- `arch -arm64 <command>` → 以 ARM 模式跑這個 <command>（通常不必手動指定）
+
+# 安裝 node 指令中 `--shared-zlib` 的意思是？
+**`--shared-zlib` 編譯 Node.js 時，使用系統中共用的 zlib（壓縮函式庫）而不是內建的 zli**
+
+這個參數是給需要自己編譯 Node.js 原始碼時使用的 flags。
+
+nvm 安裝 Node.js 時會從原始碼或預編譯的版本來安裝，這個 flag 會改變：
+1. 使用本機系統安裝的 zlib 庫（共享）
+2. 而非使用 Node.js 預設內建的版本
+
+用途很專業化，通常只有在你需要：
+
+1. 減少 binary 大小
+2. 或與系統上的 zlib 保持一致性（例如在某些 Linux 環境下）
+
+# 想解決的問題 & 解法：
+**Problem**
+需要安裝 node 14 左右的舊版本來跑 gulp，但在 mac 筆電中無法正確安裝
+
+**Answer**
+執行順序
+1. `softwareupdate --install-rosetta` → 安裝 Rosetta
+2. `arch -x86_64 zsh` → zsh shell 執行 Intel 架構工具
+3. `export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"` → 若 zsh 中找不到 nvm 指令，啟用 nvm
+4. `nvm install v14.xx.xx --shared-zlib` → 安裝 node 14，指定安裝時使用系統共用的 zlib 壓縮函式庫來編譯
