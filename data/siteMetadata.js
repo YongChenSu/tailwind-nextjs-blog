@@ -12,6 +12,7 @@ const siteMetadata = {
   socialBanner: `${process.env.BASE_PATH || ''}/static/images/twitter-card.png`,
   github: 'https://github.com/YongChenSu',
   linkedin: 'https://www.linkedin.com/in/harry-su-854898174/',
+  instagram: 'https://www.instagram.com/dawning_climber',
   locale: 'en-US',
   // set to true if you want a navbar fixed to the top
   stickyNav: false,
