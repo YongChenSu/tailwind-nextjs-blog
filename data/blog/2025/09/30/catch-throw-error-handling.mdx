@@ -1,0 +1,104 @@
+---
+title:
+date: '2025-09-30'
+tags: ['Tanstack Query', 'Error Handling']
+draft: false
+summary:
+authors: ['YongChen']
+---
+
+TanStack Query 是前端常用的資料獲取、狀態管理函式庫。TanStack Query 的 queryFn 參數是幫忙管理 API function 的執行、快取、重試。
+
+在 API 層，也就是使用 `.catch()` 來處理錯誤，有個小小要注意的地方，就是當**有錯誤時，`.catch()` 中沒有繼續往外拋出錯誤，TanStack Query 無法補獲錯誤**
+
+## 分層責任 (Separation of concerns)
+
+良好的錯誤處理架構應該遵循分層責任原則：
+
+#### API 層：專注於「呼叫後端並回傳資料或丟出錯誤」
+
+API 層的職責應該單純明確：
+
+- 發送 HTTP 請求
+- 回傳成功的資料
+- 讓錯誤自然向上傳播
+
+#### UI / Mutation 層：決定「錯誤發生時要怎麼顯示給使用者、要不要彈 alert、要不要 retry」
+
+UI 層應該負責：
+
+- 決定錯誤的呈現方式
+- 是否顯示 toast 或 alert
+- 是否提供重試機制
+- 錯誤日誌記錄
+
+如果在 API function 裡使用 `.catch()` 但沒有繼續拋出錯誤，可能會：
+
+- **吞掉錯誤**（返回 undefined），讓呼叫端誤以為成功但資料是空的
+- **UI 層失去判斷錯誤的機會**，只能額外做 null check，不直覺
+
+#### 完整的錯誤處理流程
+
+```javascript
+// API 層 - 保持簡潔
+export const uploadFile = (file) => {
+  return API.post('/upload', file).then((res) => res.data)
+  // 不使用 .catch()，讓錯誤自然向上傳播
+}
+
+// UI 層 - 統一錯誤處理
+const useUploadFile = () => {
+  return useMutation({
+    mutationFn: uploadFile,
+    onError: (error) => {
+      // 統一的錯誤處理邏輯
+      if (error.response?.status === 413) {
+        toast.error('檔案太大，請選擇較小的檔案')
+      } else if (error.response?.status === 400) {
+        toast.error('檔案格式不正確')
+      } else {
+        toast.error('上傳失敗，請稍後再試')
+      }
+
+      // 發送錯誤到監控服務
+      logErrorToService(error)
+    },
+    onSuccess: () => {
+      toast.success('檔案上傳成功')
+    },
+  })
+}
+```
+
+#### 使用 .catch() 但拋出錯誤
+
+在 API 層用 .catch 並 throw error，是可以在 UI 層拿到 error 的，一種情境是在 API 層轉換錯誤格式並記錄後拋出 error
+
+```javascript
+export const uploadFile = (file) => {
+  return API.post('/upload', file)
+    .then((res) => res.data)
+    .catch((error) => {
+      // 在 API 層轉換錯誤格式
+      const enhancedError = {
+        ...error,
+        timestamp: new Date(),
+        fileName: file.name,
+        fileSize: file.size,
+      }
+
+      // 記錄到 API 層的日誌
+      console.error('Upload failed:', enhancedError)
+
+      // ✅ 重新拋出讓 UI 層處理
+      throw enhancedError
+    })
+}
+```
+
+## 總結：核心原則
+
+1. **API function 專注在「資料流」**，不要吞錯誤
+2. **錯誤統一交給 Tanstack Query 的 onError 或 UI 層**來決定要怎麼處理
+3. **分層清楚**，debug 也更好追蹤
+4. **一致的錯誤處理體驗**，避免處理方式不統一
