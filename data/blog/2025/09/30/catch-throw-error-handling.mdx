@@ -1,57 +1,102 @@
 ---
-title:
+title: API 錯誤處理：分層架構與 TanStack Query 整合
 date: '2025-09-30'
-tags: ['Tanstack Query', 'Error Handling']
+tags: ['TanStack Query', 'Error Handling', 'API Design']
 draft: false
-summary:
+summary: '深入探討 API 層與 UI 層的錯誤處理職責分離。說明在 .catch() 中必須重新拋出錯誤的原因，以及如何設計清晰的分層架構，讓 TanStack Query 的錯誤處理機制正常運作'
 authors: ['YongChen']
 ---
 
-TanStack Query 是前端常用的資料獲取、狀態管理函式庫。TanStack Query 的 queryFn 參數是幫忙管理 API function 的執行、快取、重試。
+# API 錯誤處理：分層架構與 TanStack Query 整合
 
-在 API 層，也就是使用 `.catch()` 來處理錯誤，有個小小要注意的地方，就是當**有錯誤時，`.catch()` 中沒有繼續往外拋出錯誤，TanStack Query 無法補獲錯誤**
+在使用 TanStack Query 時，一個常見的錯誤是在 API 層使用 .catch() 處理錯誤，但沒有重新拋出錯誤。這會導致 TanStack Query 無法捕獲錯誤，進而無法觸發 onError callback，讓錯誤處理機制失效。
 
-## 分層責任 (Separation of concerns)
+## 分層責任 (Separation of Concerns)
 
 良好的錯誤處理架構應該遵循分層責任原則：
 
-#### API 層：專注於「呼叫後端並回傳資料或丟出錯誤」
+### API 層：專注於「呼叫後端並回傳資料或丟出錯誤」
 
 API 層的職責應該單純明確：
 
 - 發送 HTTP 請求
 - 回傳成功的資料
 - 讓錯誤自然向上傳播
+- **記錄所有 API 錯誤的技術細節**（統一的錯誤日誌）
+- 進行必要的資料格式轉換
+- 處理自動重試邏輯（使用者不需要知道的技術細節）
 
-#### UI / Mutation 層：決定「錯誤發生時要怎麼顯示給使用者、要不要彈 alert、要不要 retry」
+**API 層不應該處理：**
+
+- ❌ 業務邏輯判斷
+- ❌ UI 更新
+- ❌ 顯示 toast 或 alert
+- ❌ localStorage 等副作用
+- ❌ 決定如何呈現錯誤給使用者
+
+### UI / Mutation 層：決定「錯誤發生時要怎麼顯示給使用者」
 
 UI 層應該負責：
 
-- 決定錯誤的呈現方式
+- 決定錯誤的呈現方式（toast、inline error、modal 等）
 - 是否顯示 toast 或 alert
-- 是否提供重試機制
-- 錯誤日誌記錄
+- 提供重試機制給使用者（重試按鈕）
+- **記錄使用者行為和上下文**（analytics、使用者操作日誌）
+- 根據不同錯誤類型顯示對應的使用者友善訊息
+
+**UI 層不應該處理：**
+
+- ❌ HTTP 請求細節
+- ❌ API 層面的自動重試
+- ❌ 底層的錯誤日誌（API 錯誤應在 API 層統一記錄）
+
+---
+
+## 常見錯誤：在 API 層吞掉錯誤
 
 如果在 API function 裡使用 `.catch()` 但沒有繼續拋出錯誤，可能會：
 
 - **吞掉錯誤**（返回 undefined），讓呼叫端誤以為成功但資料是空的
 - **UI 層失去判斷錯誤的機會**，只能額外做 null check，不直覺
-
-#### 完整的錯誤處理流程
+- **TanStack Query 無法觸發 onError**，導致錯誤處理失效
 
 ```javascript
-// API 層 - 保持簡潔
+// ❌ 錯誤示範：吞掉錯誤
+export const uploadFile = (file) => {
+  return API.post('/upload', file)
+    .then((res) => res.data)
+    .catch((error) => {
+      console.error('Upload failed:', error)
+      // 沒有 throw, TanStack Query 會認為請求「成功」
+      // mutation.data 會是 undefined
+      // mutation.isError 會是 false ❌
+      // onError 不會被觸發 ❌
+    })
+}
+```
+
+---
+
+## 正確做法 1：讓錯誤自然向上傳播
+
+### API 層 - 保持簡潔
+
+```javascript
+// ✅ 推薦：最簡潔的做法
 export const uploadFile = (file) => {
   return API.post('/upload', file).then((res) => res.data)
   // 不使用 .catch()，讓錯誤自然向上傳播
 }
+```
 
-// UI 層 - 統一錯誤處理
+### UI 層 - 統一錯誤處理
+
+```javascript
 const useUploadFile = () => {
   return useMutation({
     mutationFn: uploadFile,
     onError: (error) => {
-      // 統一的錯誤處理邏輯
+      // UI 層決定如何呈現錯誤
       if (error.response?.status === 413) {
         toast.error('檔案太大，請選擇較小的檔案')
       } else if (error.response?.status === 400) {
@@ -60,35 +105,57 @@ const useUploadFile = () => {
         toast.error('上傳失敗，請稍後再試')
       }
 
-      // 發送錯誤到監控服務
-      logErrorToService(error)
+      // 記錄使用者行為和上下文
+      analytics.track('upload_failed', {
+        fileName: file.name,
+        errorStatus: error.response?.status,
+        userAgent: navigator.userAgent,
+      })
     },
     onSuccess: () => {
       toast.success('檔案上傳成功')
+      analytics.track('upload_success')
     },
   })
 }
 ```
 
-#### 使用 .catch() 但拋出錯誤
+---
 
-在 API 層用 .catch 並 throw error，是可以在 UI 層拿到 error 的，一種情境是在 API 層轉換錯誤格式並記錄後拋出 error
+## 正確做法 2：在 API 層處理並重新拋出
+
+當需要在 API 層做以下處理時，可以使用 `.catch()` 並重新拋出錯誤：
+
+- 轉換錯誤格式
+- 記錄 API 層的技術日誌
+- 添加額外的錯誤資訊
+
+### API 層 - 處理後拋出
 
 ```javascript
+// ✅ 在 API 層記錄技術細節後拋出
 export const uploadFile = (file) => {
   return API.post('/upload', file)
     .then((res) => res.data)
     .catch((error) => {
-      // 在 API 層轉換錯誤格式
+      // 記錄 API 層的技術細節
+      logger.error('API_ERROR', {
+        endpoint: '/upload',
+        method: 'POST',
+        status: error.response?.status,
+        message: error.message,
+        timestamp: new Date(),
+      })
+
+      // 轉換錯誤格式（可選）
       const enhancedError = {
         ...error,
-        timestamp: new Date(),
-        fileName: file.name,
-        fileSize: file.size,
+        context: {
+          fileName: file.name,
+          fileSize: file.size,
+          timestamp: new Date(),
+        },
       }
-
-      // 記錄到 API 層的日誌
-      console.error('Upload failed:', enhancedError)
 
       // ✅ 重新拋出讓 UI 層處理
       throw enhancedError
@@ -96,9 +163,94 @@ export const uploadFile = (file) => {
 }
 ```
 
+### UI 層 - 決定呈現方式
+
+```javascript
+const useUploadFile = () => {
+  return useMutation({
+    mutationFn: uploadFile,
+    onError: (error) => {
+      // UI 層根據錯誤決定如何顯示
+      if (error.response?.status === 413) {
+        toast.error('檔案太大，請選擇較小的檔案')
+      } else {
+        toast.error('上傳失敗，請稍後再試')
+      }
+
+      // 記錄使用者層面的失敗
+      analytics.track('user_upload_failed', {
+        reason: error.message,
+      })
+    },
+  })
+}
+```
+
+---
+
+## 進階：統一的 API 錯誤處理
+
+對於大型專案，建議在 API 層使用攔截器統一處理：
+
+```javascript
+// api/client.js
+import axios from 'axios'
+import logger from './logger'
+
+const apiClient = axios.create({
+  baseURL: '/api',
+})
+
+// 統一的錯誤攔截器
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // 所有 API 錯誤都會被記錄
+    logger.error('API_ERROR', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      message: error.message,
+      timestamp: new Date(),
+    })
+
+    // 繼續拋出錯誤給 UI 層
+    return Promise.reject(error)
+  }
+)
+
+export default apiClient
+
+// api/upload.js
+export const uploadFile = (file) => {
+  return apiClient.post('/upload', file).then((res) => res.data)
+  // 不需要 .catch()，攔截器已經統一處理了
+}
+```
+
+---
+
 ## 總結：核心原則
 
-1. **API function 專注在「資料流」**，不要吞錯誤
-2. **錯誤統一交給 Tanstack Query 的 onError 或 UI 層**來決定要怎麼處理
-3. **分層清楚**，debug 也更好追蹤
-4. **一致的錯誤處理體驗**，避免處理方式不統一
+### 分層職責清單
+
+| 職責             | API 層 | UI 層 |
+| ---------------- | ------ | ----- |
+| HTTP 請求        | ✅     | ❌    |
+| 資料格式轉換     | ✅     | ❌    |
+| API 錯誤日誌     | ✅     | ❌    |
+| 自動重試邏輯     | ✅     | ❌    |
+| 決定錯誤呈現方式 | ❌     | ✅    |
+| 顯示 toast/alert | ❌     | ✅    |
+| 提供重試按鈕     | ❌     | ✅    |
+| 使用者行為日誌   | ❌     | ✅    |
+| 業務邏輯         | ❌     | ✅    |
+
+### 關鍵原則
+
+1. **API 層專注在「資料流」和「技術細節」**，不要吞錯誤，統一記錄所有 API 錯誤
+2. **錯誤統一交給 TanStack Query 的 onError 或 UI 層**來決定要怎麼呈現給使用者
+3. **技術細節在底層處理，使用者體驗在上層決定**
+4. **分層清楚**，debug 也更好追蹤
+5. **一致的錯誤處理體驗**，避免處理方式不統一
+6. **如果使用 .catch()，必須重新 throw error**，否則 TanStack Query 無法捕獲錯誤
