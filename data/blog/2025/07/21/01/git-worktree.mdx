@@ -1,14 +1,16 @@
 ---
 title: git worktree
-date: '2025-07-22'
+date: '2025-07-21'
 tags: ['git']
 draft: false
-summary: "之前就聽說 git worktree 很好用，有稍微學過，但一直沒有常用，直到再次被 threads 的貼文 打到，好好來學一下"
+summary: '之前就聽說 git worktree 很好用，有稍微學過，但一直沒有常用，直到再次被 threads 的貼文 打到，好好來學一下'
 authors: ['YongChen']
 ---
+
 之前就聽說 git worktree 很好用，有稍微學過，但一直沒有常用，直到再次被 [threads 的貼文](https://www.threads.com/@min.biz/post/DMC7ZwJpKHS?xmt=AQF0YK2jDccSZu5iWtjqYKmct0D_x0V3P73sYGEaBoe8TQ)打到，還有開始用 claude code 想要更多工處理事情，特此記錄一下 git work tree 的使用方式。
 
 ## git worktree 介紹
+
 git worktree 用來讓同一個 repo 同時 checkout 多個分支到不同的目錄。這對於以下情境特別有用：
 
 1. 想在同一個專案的不同分支上同時開發（例如：修 bug 用 main 分支，開發新功能用 feature 分支）
@@ -18,49 +20,48 @@ git worktree 用來讓同一個 repo 同時 checkout 多個分支到不同的目
 3. 想在 CI/CD 或腳本中快速處理多個版本的 code
 
 #### 基本概念
+
 通常，一個 Git repo 只有一個工作目錄（working directory），只能檢出一個分支。但透過 git worktree，你可以：
 
 在不同目錄中 checkout 不同分支（或 commit）
 
 共享相同的 .git 物件（節省空間）
 
-#### 常用指令
-**查看現有 worktrees**
-`git worktree list`
+## 常見使用方式
 
-**新增一個 worktree 並切換分支**
-`git worktree add ../climbing-beta-scraper-all -b feat/scraper-all`
+1. 建立新的 worktree
+   `git worktree add ../feature-branch feature-branch`
 
-這會：
-在 `../climbing-beta-scraper-all` 建立一個新資料夾
-checkout `feat/scraper-all` 到該資料夾
+- `../feature-branch`：新目錄位置
+- `feature-branch`：要檢出的 branch
 
-**移除 worktree**
-git worktree remove ../my-feature-dir
+2. branch 不存在
+   `git worktree add -b new-branch ../new-branch origin/main`
 
+這會在 `../new-branch` 建立一個新目錄，並從 `origin/main` 開新分支 `new-branch`。
+
+3. 查看已存在的 worktree
+   `git worktree list`
+
+會列出所有 worktree 的路徑與 branch 狀態。
+
+4. 移除 worktree
+   `git worktree remove ../feature-branch`
+
+會移除 worktree 目錄與其相關設定（不會刪掉 branch 本身）。
+
+4. 清理已刪除目錄的 worktree 記錄
+
+如果你手動刪了 worktree 目錄，需要清理：
+
+`git worktree prune`
 
 移除目錄與對應的 worktree 記錄（不會刪除分支）
 
-⚠️ 注意事項
+#### ⚠️ 注意事項
+
 同一個分支不能在多個 worktree 同時 checkout
 
 worktree 不建議放在原 repo 的子目錄中（可能造成混亂）
 
 建議使用 ../ 開頭放在 repo 外層目錄
-
-#### 實用場景範例
-範例：同時開發 main 與 feature 分支
-
-1. 切換到 main branch
-`cd my-repo/`
-`git checkout main`
-
-2. 建立 feature 分支 worktree
-`git worktree add -b feature ../my-repo-feature main`
-現在有兩個資料夾：
-my-repo          → 在 main 分支
-my-repo-feature  → 在 feature 分支
-這樣可以同時開發並互不干擾，非常適合多人協作或複雜 feature 的平行開發。
-
-## 感想
-真的好用耶，除了修 bug 以外，之後搭配 claude code。
