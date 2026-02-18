@@ -1,0 +1,103 @@
+---
+title: 'MongoDB 學習計劃'
+date: '2026-02-18'
+tags: [mongodb]
+draft: true
+summary: '學習 Mongo DB with GoodJob (need to remove some private)'
+authors: ['YongChen']
+---
+
+# MongoDB 學習計劃
+
+## Step 1: 本地端跑起 MongoDB + Studio 3T 連線
+
+- 用 Docker 啟動 MongoDB：`docker run -d --name mongodb -p 27017:27017 mongo:4.4`
+- 安裝 Studio 3T（或免費版 Robo 3T）
+- 連線設定：host `localhost`, port `27017`，驗證能看到預設的 admin/local 資料庫
+
+## Step 2: Restore GoodJob 資料
+
+- 從 GCP 下載備份檔
+- 先確認備份格式：看下載下來的是 `.bson` 檔（mongodump 產出）還是 `.json`
+  - 如果是 **bson**：`mongorestore --host localhost:27017 --db goodjob <備份資料夾路徑>`
+  - 如果是 **json**：`mongoimport --host localhost:27017 --db goodjob --collection <name> --file <file>.json`
+  - 也可用 Studio 3T 的 Import 功能（支援 bson/json/csv）
+- 確認 collections 存在，特別是 `experiences`、`companies` 等
+
+## Step 3: 用 find() 搜尋資料
+
+練習目標：熟悉基本 query 語法
+
+```js
+// 3a. 查看 experiences collection 結構
+db.experiences.findOne()
+
+// 3b. 條件查詢：找已發布的資料
+db.experiences.find({ status: 'published', 'archive.is_archived': false }).limit(5)
+
+// 3c. 投影：只取需要的欄位
+db.experiences.find({ type: 'work' }, { company: 1, job_title: 1, sections: 1, _id: 0 }).limit(5)
+
+// 3d. 排序 + 計數
+db.experiences.find({ type: 'interview' }).sort({ created_at: -1 }).limit(10)
+db.experiences.countDocuments({ type: 'work' })
+```
+
+## Step 4: 用 aggregate() 算統計值
+
+練習目標：學會 pipeline stages（`$match`, `$group`, `$project`, `$unwind`）
+
+```js
+// 4a. 最簡單的 group：按 type 計數
+db.experiences.aggregate([
+  { $match: { status: 'published' } },
+  { $group: { _id: '$type', count: { $sum: 1 } } },
+])
+
+// 4b. 計算薪資平均
+// ⚠️ 欄位名稱需 restore 後用 findOne() 確認實際結構再調整
+db.experiences.aggregate([
+  { $match: { type: 'work', 'salary.amount': { $exists: true, $ne: null } } },
+  {
+    $group: {
+      _id: '$company.name',
+      avgSalary: { $avg: '$salary.amount' },
+      count: { $sum: 1 },
+    },
+  },
+  { $sort: { avgSalary: -1 } },
+  { $limit: 10 },
+])
+
+// 4c. $unwind 練習：展開陣列欄位
+db.experiences.aggregate([
+  { $match: { type: 'work' } },
+  { $unwind: '$sections' },
+  { $match: { 'sections.rating': { $ne: null } } },
+  { $group: { _id: '$sections.subtitle', avgRating: { $avg: '$sections.rating' } } },
+])
+```
+
+> 注意：實際欄位名稱需根據 restore 後的資料結構調整，先用 `findOne()` 確認。
+
+## Step 5: 讀懂 factCanonicalCompaniesRatingStatistics.js
+
+這段 script 是一條完整的 aggregation pipeline，逐步拆解如下：
+
+| Stage                     | 做什麼                                         | 說明                                                                                          |
+| ------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `$match`                  | 篩選已發布且未封存的 experience                | 基本過濾                                                                                      |
+| `$project`                | 根據 type（interview/intern/work）提取 ratings | interview/intern 取 `overall_rating` 包成陣列；work 用 `$map` 從 `sections` 提取每個 `rating` |
+| `$unwind "$ratings"`      | 把 ratings 陣列展開成多筆                      | 一筆 experience 可能有多個 rating                                                             |
+| `$match ratings $ne null` | 過濾掉 null 的 rating                          |                                                                                               |
+| 第一個 `$group`           | 按 (公司, rating值) 分組計數                   | 得到每間公司每個評分的次數                                                                    |
+| 第二個 `$group`           | 按公司再聚合                                   | 算出 distribution 陣列、總 count、sumRating                                                   |
+| `$project`                | 計算平均分                                     | `average = sumRating / count`                                                                 |
+| `$out`                    | 輸出到新 collection                            | 結果寫入 `factCanonicalCompaniesRatingStatistics`                                             |
+
+**關鍵概念：兩次 `$group`**
+
+- 第一次：細粒度分組（公司 + 評分值）→ 得到分佈數據
+- 第二次：粗粒度分組（只按公司）→ 把分佈 push 成陣列，同時算總和
+
+**建議練習**：把這條 pipeline 貼到 Studio 3T 的 Aggregation Editor 裡，逐個 stage 執行，觀察每步的輸出變化。Studio 3T 的 aggregation tab 支援逐步預覽，這是理解 pipeline 最好的方式。
