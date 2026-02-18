@@ -1,0 +1,442 @@
+---
+title: '後端多 Process 架構與 Pub/Sub 非同步訊息系統入門'
+date: '2026-02-18'
+tags: [pubsub, backend architecture]
+draft: false
+summary: '深入理解後端 Process 概念、多 Process 架構設計，以及 Pub/Sub 發布訂閱模式如何實現非同步解耦'
+authors: ['YongChen']
+---
+
+## 1. 什麼是 Process（進程）？
+
+### 基本概念
+
+- **Process（進程）** 是作業系統中一個正在執行的程式實例
+- 每個 process 都是獨立運作的，有自己的記憶體空間
+- 在 Node.js 中，執行 `node xxx.js` 就會啟動一個新的 process
+
+### 實際範例
+
+```bash
+# 啟動 API Server（這是一個 process）
+npm run start
+# 實際執行：node ./bin/server.js
+
+# 未來會需要啟動 Consumer（這是另一個 process）
+node ./bin/consumer.js  # 假設的檔案
+```
+
+這兩個指令會產生**兩個完全獨立的 process**，它們：
+
+- 各自有獨立的記憶體空間
+- 不會互相影響對方的變數或狀態
+- 可以在不同的機器上運行
+- 可以獨立重啟、擴展（scale）
+
+---
+
+## 2. 後端不只有 API Server
+
+### 傳統認知（可能會誤解的）
+
+很多人以為「後端 = API Server」，也就是：
+
+```
+前端 → 發送 HTTP Request → 後端 API Server → 回傳 Response
+```
+
+### 實際的後端系統
+
+實際上，一個完整的後端系統可能包含：
+
+1. **API Server Process**
+
+   - 處理 HTTP 請求
+   - 回應前端的 API 呼叫
+   - 範例：`npm run start` 啟動的 Express Server
+
+2. **Background Worker/Consumer Process**
+
+   - 處理非同步任務
+   - 監聽訊息佇列（Message Queue）
+   - 執行排程任務
+   - 範例：監聽 Pub/Sub subscription 的 process
+
+3. **其他可能的 Process**
+   - Scheduled Job（定時任務）
+   - 資料處理 Pipeline
+   - Webhook Handler
+
+---
+
+## 3. Pub/Sub 架構詳解
+
+### 什麼是 Pub/Sub？
+
+**Pub/Sub = Publisher/Subscriber（發布者/訂閱者）模式**
+
+這是一種訊息傳遞架構，讓不同的系統或服務可以異步溝通。
+
+### 核心元件
+
+```
+Publisher（發布者）
+    ↓
+  Topic（主題）
+    ↓
+Subscription（訂閱）
+    ↓
+Consumer（消費者）
+```
+
+#### 1. Publisher（發布者）
+
+- **誰**：發送訊息的人
+- **做什麼**：當某件事發生時，發布一則訊息到 Topic
+- **範例**：當用戶建立訂單時，API Server 發布訊息
+
+```javascript
+// API Server 收到建立訂單請求時
+async function handleOrderCreated(orderData, userId) {
+  // 1. 儲存訂單記錄到資料庫
+  const order = await saveOrder(orderData, userId)
+
+  // 2. 發布訊息到 Pub/Sub Topic
+  const pubsub = new PubSub()
+  const topic = pubsub.topic('order-created')
+  await topic.publish(
+    Buffer.from(
+      JSON.stringify({
+        orderId: order._id,
+      })
+    )
+  )
+
+  // 3. 立即回應給前端
+  return { success: true }
+}
+```
+
+#### 2. Topic（主題）
+
+- **是什麼**：一個訊息的分類頻道
+- **比喻**：像是 YouTube 頻道，不同主題的內容發布到不同頻道
+- **範例**：`order-created` 這個 Topic 專門處理「訂單建立」的事件
+
+#### 3. Subscription（訂閱）
+
+- **是什麼**：訂閱某個 Topic，表示想接收該 Topic 的訊息
+- **比喻**：訂閱 YouTube 頻道後，就會收到該頻道的通知
+- **特點**：一個 Topic 可以有多個 Subscription
+
+#### 4. Consumer（消費者）
+
+- **誰**：接收並處理訊息的 process
+- **做什麼**：持續監聽 Subscription，收到訊息後執行對應的處理邏輯
+- **範例**：發送訂單確認通知給用戶
+
+```javascript
+// Consumer Process（獨立的 process）
+const pubsub = new PubSub()
+const subscription = pubsub.subscription('order-created-sub')
+
+// 持續監聽訊息
+subscription.on('message', async (message) => {
+  const data = JSON.parse(message.data.toString())
+  const { orderId } = data
+
+  // 處理邏輯：發送訂單確認通知
+  await sendOrderConfirmation(orderId)
+
+  // 確認訊息已處理
+  message.ack()
+})
+```
+
+---
+
+## 4. 為什麼要分開成不同的 Process？
+
+### 情境說明
+
+假設「用戶建立訂單」這個功能，我們需要：
+
+1. 儲存訂單記錄（必須立即完成）
+2. 發送 email 確認給用戶（可以稍後處理）
+
+### 方案一：全部在 API Server 做（不好的做法）
+
+```javascript
+async function handleOrderCreated(orderData, userId) {
+  // 1. 儲存訂單（快）
+  await saveOrder(orderData, userId)
+
+  // 2. 發送 email（慢！可能要 2-5 秒）
+  await sendEmail(recipientEmail)
+
+  // 3. 回應給前端
+  return { success: true }
+}
+```
+
+**問題**：
+
+- 用戶要等 2-5 秒才能看到訂單建立成功
+- 如果發送 email 失敗，整個請求會失敗
+- API Server 要處理很多耗時的工作，影響其他請求
+
+### 方案二：分成兩個 Process（推薦做法）
+
+#### API Server Process
+
+```javascript
+async function handleOrderCreated(orderData, userId) {
+  // 1. 儲存訂單（快）
+  const order = await saveOrder(orderData, userId)
+
+  // 2. 發布訊息（很快，只是發送訊息）
+  await pubsub.topic('order-created').publish({
+    orderId: order._id,
+  })
+
+  // 3. 立即回應（可能只花 100-200ms）
+  return { success: true }
+}
+```
+
+#### Consumer Process（獨立運行）
+
+```javascript
+// 持續監聽，有訊息就處理
+subscription.on('message', async (message) => {
+  const { orderId } = JSON.parse(message.data)
+
+  // 執行耗時操作（不影響 API Server）
+  await sendEmail(recipientEmail)
+
+  message.ack()
+})
+```
+
+**優點**：
+
+1. **快速回應**：API 立即回應，用戶體驗好
+2. **解耦（Decoupling）**：API Server 和背景任務分開
+3. **容錯性**：email 發送失敗不會影響按讚功能
+4. **可擴展**：可以獨立增加 Consumer 數量來處理更多訊息
+5. **職責分離**：API Server 專心處理請求，Consumer 專心處理背景任務
+
+---
+
+## 5. 實際部署架構
+
+### 基本架構
+
+```
+已實作：
+- API Server Process (npm run start)
+  - 處理 HTTP 請求
+  - 發布訊息到 Pub/Sub Topic
+```
+
+### 加入 Consumer
+
+```
+後續實作：
+- Consumer Process (獨立的 process)
+  - 監聽 order-created-sub subscription
+  - 收到訊息後發送通知
+  - 獨立於 API Server 運行
+```
+
+### 部署時的運行方式
+
+```bash
+# 機器 A（或 Container 1）
+npm run start
+# → 啟動 API Server process
+
+# 機器 B（或 Container 2）
+node bin/consumer.js  # 假設的檔案
+# → 啟動 Consumer process
+```
+
+或者在同一台機器上：
+
+```bash
+# Terminal 1
+npm run start
+
+# Terminal 2
+node bin/consumer.js
+```
+
+---
+
+## 6. Google Cloud Pub/Sub 使用範例
+
+### 安裝套件
+
+```bash
+npm install @google-cloud/pubsub
+```
+
+### 環境變數設定
+
+```bash
+GCP_PROJECT_ID=your-gcp-project-id
+EVENT_TOPIC_NAME=order-created
+GOOGLE_APPLICATION_CREDENTIALS=./service-account.json
+```
+
+### Topic 結構
+
+```
+Topic: order-created
+  ↓
+Subscription: order-created-sub (需要建立)
+  ↓
+Consumer Process
+```
+
+---
+
+## 7. 重要觀念總結
+
+### Process 的獨立性
+
+```
+API Server Process          Consumer Process
+├─ 獨立記憶體空間          ├─ 獨立記憶體空間
+├─ 專注處理 HTTP 請求      ├─ 專注處理背景任務
+├─ 快速回應                ├─ 可以執行耗時操作
+└─ 可獨立重啟/擴展         └─ 可獨立重啟/擴展
+```
+
+### 訊息流程
+
+```
+1. 用戶建立訂單
+   ↓
+2. 前端發送 API 請求
+   ↓
+3. API Server 處理請求
+   ├─ 儲存訂單記錄
+   └─ 發布訊息到 Pub/Sub Topic
+   ↓
+4. 立即回應前端（成功！）
+
+（以下是非同步進行，不影響上面的回應）
+
+5. Pub/Sub Topic 接收訊息
+   ↓
+6. Subscription 收到訊息
+   ↓
+7. Consumer Process 處理訊息
+   ├─ 查詢相關資料
+   ├─ 發送 email
+   └─ 記錄通知
+   ↓
+8. 確認訊息處理完成（ack）
+```
+
+### 關鍵字對照
+
+- **Process（進程）**：獨立運行的程式實例
+- **API Server**：處理 HTTP 請求的 process
+- **Consumer/Worker**：處理背景任務的 process
+- **Pub/Sub**：發布訂閱模式的訊息系統
+- **Topic**：訊息的分類頻道
+- **Subscription**：訂閱 Topic 以接收訊息
+- **Message Queue**：訊息佇列，暫存待處理的訊息
+- **Asynchronous（非同步）**：不用等待完成就繼續執行
+- **Decoupling（解耦）**：分離不同職責，降低相依性
+
+---
+
+## 8. 常見問題 Q&A
+
+### Q1: 為什麼不能在 API Server 裡面開一個背景 thread 來處理？
+
+A: 雖然技術上可行，但：
+
+- Node.js 是單執行緒，背景任務會影響主線程
+- 無法獨立擴展（scale）背景任務處理能力
+- API Server 重啟時，正在處理的背景任務會丟失
+- 職責不明確，維護困難
+
+### Q2: Consumer Process 一直在運行嗎？
+
+A: 是的，Consumer 會持續監聽 Subscription：
+
+```javascript
+// Consumer 啟動後會一直運行，等待訊息
+subscription.on('message', handler)
+```
+
+### Q3: 如果 Consumer 處理失敗怎麼辦？
+
+A: Pub/Sub 有重試機制：
+
+- 如果沒有 `ack()`，訊息會重新發送
+- 可以設定重試次數和 Dead Letter Queue
+
+### Q4: 一定要用 Google Cloud Pub/Sub 嗎？
+
+A: 不一定，也可以用：
+
+- Redis Pub/Sub
+- RabbitMQ
+- AWS SQS/SNS
+- Apache Kafka
+
+### Q5: Consumer 可以有多個嗎？
+
+A: 可以！這是 Pub/Sub 的優勢：
+
+```bash
+# Terminal 1
+node bin/consumer.js
+
+# Terminal 2
+node bin/consumer.js
+
+# Terminal 3
+node bin/consumer.js
+```
+
+多個 Consumer 會分擔訊息處理，提高處理速度。
+
+---
+
+## 9. 學習建議
+
+### 學習順序
+
+1. ✅ 理解 Process 的概念（本文件）
+2. ⏭️ 實作簡單的 Consumer（下個 milestone）
+3. ⏭️ 理解訊息確認機制（ack/nack）
+4. ⏭️ 處理錯誤和重試
+5. ⏭️ 監控和除錯
+
+### 實驗建議
+
+1. 在本機跑兩個 Terminal：
+
+   - Terminal 1: `npm run start`（API Server）
+   - Terminal 2: `node scripts/testPublish.js`（測試發送訊息）
+
+2. 觀察 Google Cloud Console 的 Pub/Sub 頁面：
+
+   - 看到訊息數量增加
+   - 理解訊息的流動
+
+3. 未來實作 Consumer 後：
+   - Terminal 1: API Server
+   - Terminal 2: Consumer
+   - Terminal 3: 發送測試請求
+   - 觀察三者如何協作
+
+---
+
+**建立時間**：2026-02-18
