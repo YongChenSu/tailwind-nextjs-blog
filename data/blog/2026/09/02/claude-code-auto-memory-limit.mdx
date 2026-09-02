@@ -1,0 +1,60 @@
+---
+title: 'Claude Code 的 auto memory 越存越多，會怎樣？'
+date: '2026-09-02'
+tags: [claude-code, memory]
+draft: false
+summary: 'Claude Code 的 auto memory 檔案越積越多，會不會全部塞進 context？答案是只有 MEMORY.md 索引的大小有影響。'
+authors: ['YongChen']
+---
+
+# Claude Code 的 auto memory 越存越多，會怎樣？
+
+Claude Code 的 auto memory 讓 Claude 自己寫筆記、跨 session 讀回來。檔案越積越多，會不會全部塞進 context？
+
+**答案：檔案數量沒有影響，只有 `MEMORY.md` 索引的大小有影響。**
+
+## 只有索引會被載入
+
+每次 session 開始，Claude Code 只載入 `MEMORY.md` 的前 200 行或前 25KB，以先到者為準。各個 topic 檔（如 `feedback_testing.md`）不會在啟動時載入，Claude 需要時才用檔案工具去讀。
+
+所以 10 個或 300 個 memory 檔，啟動時的 context 消耗都一樣。
+
+```text
+~/.claude/projects/<project>/memory/
+├── MEMORY.md           # 索引，一行一條，每次 session 載入
+├── user_role.md        # 需要時才讀
+└── feedback_testing.md # 需要時才讀
+```
+
+## 索引超限會怎樣
+
+- 接近 200 行／25KB：Claude Code 提醒 Claude 精簡索引，一條一行、細節移到 topic 檔、刪掉過時條目。
+- 超過上限：寫入仍成功，但會回傳錯誤要求重寫索引，因為超出的部分下次載入會被丟掉。
+
+實際後果是排在後面的記憶會無聲消失，Claude 不知道它們存在。
+
+## 其他細節
+
+- 索引越長越吃 context，也會降低遵循度。
+- 矛盾的條目會讓 Claude 隨機挑一個，要定期清。
+- memory 目錄不受 `cleanupPeriodDays` 清理，會一直留著。
+- 子代理不載入主對話的 memory，只有 fork 例外。
+
+## 實務建議
+
+- `/memory` 瀏覽與編輯，全部是純 markdown。
+- `/context` 確認實際載入了哪些檔案。
+- 定期檢查索引行數：
+
+```bash
+wc -lc ~/.claude/projects/*/memory/MEMORY.md
+```
+
+## 參考
+
+- https://code.claude.com/docs/en/memory#auto-memory
+- https://code.claude.com/docs/en/memory#how-it-works
+- https://code.claude.com/docs/en/errors#memory-index-is-over-its-read-limit
+- https://code.claude.com/docs/en/sub-agents#what-loads-at-startup
+- https://code.claude.com/docs/en/claude-directory#cleaned-up-automatically
+
