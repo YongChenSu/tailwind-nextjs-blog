@@ -1,0 +1,55 @@
+---
+title: 'flex-shrink 是什麼'
+date: '2026-09-04'
+tags: [css, flexbox]
+draft: true
+summary: 'flex-shrink 決定 flex container 空間不足時，項目要被壓縮多少，預設值是 1，設成 0 則完全不縮。'
+authors: ['YongChen']
+---
+
+# flex-shrink 是什麼
+
+`flex-shrink` 是 flex item 上的屬性，決定當 flex container 空間不足（子項目總大小超過容器可用空間）時，這個項目要被壓縮多少。
+
+## 核心概念
+
+- **預設值是 `1`**：代表項目預設會被壓縮。
+- **設成 `0`**：完全不壓縮，永遠維持自己該有的大小（由 `flex-basis` / `width` / `height` / 內容決定）。
+- **數字越大**：空間不夠時被壓縮的比例越多，是跟其他項目的 shrink 值做「比例分配」，不是絕對值。
+- 只有在「空間不夠、需要收縮」時才會生效；空間足夠的話 `flex-shrink` 不起作用（這時是 `flex-grow` 在決定要不要撐大）。
+
+## 常見速記
+
+| 屬性 | 作用 | 常見寫法 |
+|---|---|---|
+| `flex-grow` | 有多餘空間時，要不要、要多少倍地撐大 | `flex-grow: 1` 撐滿剩餘空間 |
+| `flex-shrink` | 空間不夠時，要不要、要多少倍地被壓縮 | `flex-shrink: 0` 固定大小不縮 |
+| `flex-basis` | 分配空間「之前」的基準大小 | `flex-basis: 0` 常搭配 grow 平分空間 |
+| `flex: 1` | 簡寫 = `flex-grow:1 flex-shrink:1 flex-basis:0%` | 撐滿剩餘空間 |
+| `flex: none` | 簡寫 = `flex-grow:0 flex-shrink:0 flex-basis:auto` | 完全固定大小 |
+
+## 實例
+
+```css
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+.warnableContainer {
+  flex: 1; /* 可撐大也可被壓縮 */
+}
+
+.footnote {
+  flex-shrink: 0; /* 空間不夠時絕不縮小 */
+  margin-top: 12px;
+}
+```
+
+`.container` 垂直排列 `.warnableContainer`、`.warning`、`.footnote`。當彈窗高度不夠（選項很多）時，瀏覽器會優先壓縮 `flex: 1` 的 `.warnableContainer`（內部用 Scrollable 包住選項，超出高度就變成內部捲動），而 `.footnote` 因為 `flex-shrink: 0` 永遠維持原本大小，釘在底部不被壓縮變形。
+
+一句話總結：`flex-shrink: 0` 就是「這個元素在空間不夠時也絕不縮水，把壓縮的代價都讓給別人」。
+
+## 參考資料
+
+- [flex-shrink - CSS: Cascading Style Sheets | MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/flex-shrink)
