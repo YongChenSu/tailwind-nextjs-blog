@@ -1,0 +1,38 @@
+---
+title: 'claude -p（print mode）'
+date: '2026-09-03'
+tags: [claude-code, cli]
+draft: false
+summary: 'claude -p 是 Claude Code 的非互動模式，把 prompt 當參數丟進去，跑完直接印到 stdout 後退出，適合放在 script、CI、pipe 裡。'
+authors: ['YongChen']
+---
+
+# `claude -p`（print mode）
+
+`claude -p` 是 Claude Code 的非互動模式（print mode）。把 prompt 當參數丟進去，Claude 跑完後直接把結果印到 stdout 然後結束，不會進入互動式對話介面。
+
+```bash
+claude -p "reply ok"
+```
+
+## 特性
+
+- **一次性執行**：處理完 prompt 就退出，適合放在 script、CI、pipe 裡。
+- **照常載入設定**：`CLAUDE.md`、`CLAUDE.local.md`、skills、hooks 都會載入，和互動模式一樣。因此可以用它驗證 import 有沒有生效，或配合 `InstructionsLoaded` hook 記錄載入順序。
+- **可搭配其他參數**：`--model haiku` 指定模型省成本、`--output-format json` 或 `stream-json` 拿結構化輸出、`--verbose` 看更多細節，也可以從 stdin 讀輸入，例如 `cat log.txt | claude -p "summarize this"`。
+- **不能中途互動**：不會問你問題或等你確認，需要權限的工具呼叫會依 settings 的 permission 規則處理。
+
+## 在哪裡執行
+
+在一般 terminal 執行，和平常打 `claude` 是同一個執行檔。
+
+| 指令 | 行為 |
+|------|------|
+| `claude` | 開啟互動式對話 |
+| `claude -p "..."` | 不開介面，處理完 prompt 印到 stdout 後退出 |
+
+當前目錄決定會載入哪些 `CLAUDE.md`、`CLAUDE.local.md` 和 skills，所以要先 `cd` 到目標專案再執行。
+
+在互動式 session 裡也可以用 `! claude -p "..."` 讓 session 代跑並把輸出貼回對話。
+
+詳細參數見 https://code.claude.com/docs/en/cli-reference 。

@@ -1,0 +1,34 @@
+---
+title: 'Razzle 是什麼？'
+date: '2026-09-02'
+tags: [razzle, react, ssr]
+draft: false
+summary: 'Razzle 是一個零設定的 React SSR 建置工具，只負責打包 client 與 server 兩份 bundle，routing 和資料預取都得自己來。'
+authors: ['YongChen']
+---
+
+# Razzle 是什麼？
+
+Razzle 是一個 React 的 SSR（Server-Side Rendering）建置工具，由 Jared Palmer（Formik 作者）開發。
+可以把它想成「零設定的 create-react-app，但支援 SSR」。
+
+## 它做的事
+
+- **同時打包兩份 bundle**：client bundle 給瀏覽器跑，server bundle 在 Node 上執行，兩邊共用同一套 React 程式碼。
+- **管好 webpack 與 Babel 設定**：不用自己維護兩套 webpack config，hot reload、CSS Modules、TypeScript 都幫你處理好。
+- **不綁定框架**：沒有自己的 routing 或 data fetching 規範。server 端要自己寫 Express、自己呼叫 `renderToString`、自己決定資料怎麼預取。
+
+## 和 Next.js 的差別
+
+Next.js 內建 routing 和 `getServerSideProps` 這類資料預取機制；Razzle 只負責建置，這些都得自己實作。
+所以用 Razzle 的專案通常會自訂一套 `fetchData` 之類的約定來做 SSR 資料預取。
+
+## 專案中對應的檔案
+
+- `razzle.config.js`：建置設定
+- `src/server.js`：Express server，收到頁面請求後執行 React 渲染並回傳 HTML
+- `src/client.js`：瀏覽器端進入點，對 server 送來的 HTML 做 hydrate
+
+## 補充
+
+Razzle 已經很久沒有活躍維護，最後正式版本停在 4.x，不少專案後來遷移到 Next.js 或 Remix。

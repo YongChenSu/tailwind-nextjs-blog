@@ -1,0 +1,115 @@
+---
+title: 'Claude Code 個人設定筆記'
+date: '2026-09-04'
+tags: [claude-code, settings]
+draft: false
+summary: '紀錄幾個容易搞混、值得回頭查的 Claude Code 設定：attribution、cleanupPeriodDays、sandbox、permissions、bypassPermissions 與 fewer-permission-prompts。'
+authors: ['YongChen']
+---
+
+# Claude Code 個人設定筆記
+
+紀錄幾個容易搞混、值得回頭查的 Claude Code 設定與背景知識。
+
+## Attribution：commit / PR 署名
+
+`includeCoAuthoredBy` 已 deprecated，改用 `attribution`：
+
+```json
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
+}
+```
+
+- `commit`：commit message 結尾要加的文字，空字串代表完全隱藏
+- `pr`：PR 描述結尾要加的文字
+- `sessionUrl`：是否附上 claude.ai session 連結，只影響 cloud / Remote Control 建立的 commit
+
+這個設定跟 git author 無關。commit 的作者身份（`git config user.name`/`user.email`）一直都在，`attribution` 只管額外加的 `Co-Authored-By` 標註行。
+
+## cleanupPeriodDays：transcript 保留天數
+
+```json
+{ "cleanupPeriodDays": 60 }
+```
+
+預設 30 天，依最後活動日期計算。設成 `0` 不是「永久保留」，而是完全不儲存 transcript（社群回報的已知落差，官方文件沒明講這點）。
+
+## Sandbox：Bash 指令的 OS 層級隔離
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "excludedCommands": ["gh"],
+    "credentials": {
+      "files": [
+        { "path": "~/.ssh", "mode": "deny" },
+        { "path": "~/.aws/credentials", "mode": "deny" }
+      ]
+    }
+  }
+}
+```
+
+- macOS 用內建 Seatbelt，不用額外裝東西
+- 只管 Bash 工具（含子行程）能碰的檔案路徑和網域，不管 Read/Write/Edit 這些工具本身
+- `gh`、`gcloud`、`terraform` 這類 Go 寫的 CLI 在 Seatbelt 下常 TLS 驗證失敗，要放進 `excludedCommands`
+- 官方原文只把它列為「減少中斷但不放棄控制」的可選功能，沒有強制建議每個人都開
+
+## permissions：allow / ask / deny 三層
+
+優先順序固定 `deny > ask > allow`，`deny` 無法夾帶例外。
+
+- `allow`：直接放行，不問
+- `ask`：每次都問，可當場放行
+- `deny`：永久拒絕，連嘗試都不會，不會跳出詢問視窗
+
+```json
+{
+  "permissions": {
+    "ask": ["Bash(curl*)", "Bash(wget*)"],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)"
+    ]
+  }
+}
+```
+
+`permissions.blockReadsOutsideWorkingDirectories: true` 是硬性擋掉工作目錄外的讀取，連 `bypassPermissions` 模式下也一樣強制檢查。這個設定在 session 啟動時就固定載入，改設定檔不會讓正在跑的 session 立刻生效，要開新 session 才會用到新值。
+
+它擋的判斷依據不是「有沒有真的讀到外部檔案」，而是「權限檢查器能不能靜態分析出這個指令會碰哪裡」。`python3 -c "任意程式碼"` 這類指令對檢查器來說是黑盒子，就算實際路徑在工作目錄內，也會因為「看不懂」而跳出詢問。
+
+## skipDangerousModePermissionPrompt 與 bypassPermissions
+
+`skipDangerousModePermissionPrompt: true` 不會自動啟用高風險模式，只是「如果你之後真的開了 `bypassPermissions` mode，跳過那個警告視窗」。
+
+`bypassPermissions` 官方定位很窄：
+
+> Only use this mode in isolated environments like containers, VMs, or dev containers without internet access, where Claude Code cannot damage your host system.
+> bypassPermissions offers no protection against prompt injection. For fewer permission prompts with safety checks, use auto mode instead.
+
+本機直接操作真實 repo 的情境不適用，官方建議改用 auto mode（獨立分類器審查動作，只放行安全操作）。
+
+`/permissions` 面板裡的分頁（Allow / Ask / Deny / Auto mode）只是設定介面，不會顯示目前是哪個模式，按 `Shift+Tab` 切換時畫面會即時顯示模式名稱。
+
+## fewer-permission-prompts：內建 skill
+
+`/fewer-permission-prompts` 是打包在 Claude Code CLI 執行檔裡的官方 bundled skill（跟 `/code-review`、`/debug` 同一類），不是外部安裝的。它會掃描最近的 transcript，統計唯讀指令出現頻率，篩掉「已經是內建自動放行清單裡的指令」（如 `git status`、`ls`、`cat`）跟「會授予任意程式碼執行能力的指令」（如 `python3`、`npx`），只把真正夠格的候選加進 `permissions.allow`。掃描結果可能是「目前沒有東西需要新增」，這本身是個合理結論。
+
+## 參考資料
+
+- [How Claude remembers your project](https://code.claude.com/docs/en/memory) — CLAUDE.md、CLAUDE.local.md、auto memory
+- [Extend Claude with skills](https://code.claude.com/docs/en/skills) — skill 的 progressive disclosure、listing budget
+- [Skill authoring best practices](https://code.claude.com/docs/en/skill-authoring-best-practices) — SKILL.md 撰寫原則
+- [Settings reference](https://code.claude.com/docs/en/settings) — 所有 settings.json 鍵值定義
+- [Configure permissions](https://code.claude.com/docs/en/iam) — allow/ask/deny 規則語法與優先順序
+- [Choose a permission mode](https://code.claude.com/docs/en/permission-modes) — auto mode、bypassPermissions mode
+- [Configure the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing) — sandbox 設定與限制
+- [Best practices for Claude Code](https://www.anthropic.com/engineering/claude-code-best-practices) — CLAUDE.md、permissions、環境設定總覽
