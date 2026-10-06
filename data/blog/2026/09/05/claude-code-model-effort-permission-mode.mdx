@@ -1,0 +1,78 @@
+---
+title: 'Claude Code：Model / Effort 設定與 Permission Mode'
+date: '2026-09-05'
+tags: [claude-code, settings]
+draft: false
+summary: '整理 Claude Code 針對 slash command、skill、subagent 設定 model 與 effort 的方式，以及 6 種 permission mode 的差異，特別是 auto mode 與 bypassPermissions 的關鍵差別。'
+authors: ['YongChen']
+---
+
+# Claude Code：Model / Effort 設定與 Permission Mode
+
+Claude Code 讓使用者針對 slash command、skill、subagent 個別指定要用哪個 model、多深的推理（effort），也提供不同的 permission mode 來控制「要不要每次動作都先問過你」。這篇整理這兩件事的官方定義與用法。
+
+## Model 與 Effort 怎麼設定
+
+**在 skill / subagent 的 frontmatter 裡直接指定：**
+
+```yaml
+---
+name: deploy
+model: opus
+effort: high
+---
+```
+
+- `model` 可用別名（`opus` / `sonnet` / `haiku` / `fable` / `best` / `opusplan` / `default`），也可用完整 model ID（如 `claude-opus-5`）；還支援 1M context 變體如 `opus[1m]`。
+- `effort` 可接受 `low` / `medium` / `high`（多數模型預設）/ `xhigh` / `max`，以及 Claude Code 專屬的 `ultracode`（等同 `xhigh` + 動態工作流，Fable 5.1 / Opus 5 不支援）。舊款 Opus 4.6 / Sonnet 4.6 不支援 `max`，會退回 `high`。
+- 也可以在 session 裡用 `/model` 和 `/effort` 指令即時切換（`/effort auto` 會清掉手動設定，回到預設值）。
+
+## Effort 該怎麼選
+
+依「模糊度」與「出錯代價」判斷，不是任務大小：
+
+- **low**：格式固定、步驟明確的機械性工作（跑固定指令、簡單查詢）
+- **medium**：一般寫 code、修 bug、範圍收斂的小重構
+- **high**：需要在多個方案間權衡、跨檔案影響大的實作（架構設計、複雜除錯）
+- **xhigh / max**：高風險決策、正確性要求極高、錯了代價很大（安全性審查、adversarial review）
+
+官方也提到：調 effort 往往比換 model 更好用——同一顆模型內用 effort 換取延遲/成本，比整顆換模型更細緻。
+
+## Model 該怎麼選
+
+官方模型選擇矩陣（choosing-a-model）：
+
+| 需求 | 建議起手 model | 例子 |
+|---|---|---|
+| 最高能力 | Fable 5.1 | 跑數小時的 agent、多步驟深度研究 |
+| 複雜 agentic coding / 企業級工作 | Opus 5 | 多小時自主 coding agent、大規模重構 |
+| 日常 coding / agent 工作的速度與能力平衡 | Sonnet 5 | 一般程式生成、資料分析 |
+| 最低延遲與價格 | Haiku 4.5 | 即時應用、高頻處理、subagent 任務 |
+
+兩條起手路線：
+
+- **效率優先**：從 Haiku 開始，測試不夠再升級——適合原型、延遲敏感、成本敏感、高量簡單任務
+- **能力優先**：從 Opus 5 開始，之後再用 effort/model 降級優化——適合複雜推理、精確度優先於成本的場景
+
+多模型組合：官方建議兩種模式——「executor 遇到難決策才升級問 advisor」，或「orchestrator 把大量工作分給便宜模型，自己做整合判斷」，讓大部分 token 落在低價模型上。
+
+## Permission Mode：auto mode vs bypass mode
+
+Permission mode 決定 Claude 做動作前要不要先問你。共 6 種：
+
+| 模式 | 不用問就能做的事 | 適合情境 |
+|---|---|---|
+| `default`（Manual） | 只有讀取類操作 | 敏感工作、需要逐一審核 |
+| `acceptEdits` | 讀取 + 檔案編輯 | |
+| `plan` | 讀取 + 經分類器審核過的指令 | 先規劃再動手 |
+| `auto` | 幾乎全部，但有分類器（第二顆模型）即時審核 | 長任務、減少提示疲勞。Pro/Max/Team 方案的預設起始模式 |
+| `dontAsk` | 只自動批准預先允許的工具 | |
+| `bypassPermissions` | 完全全部，沒有分類器審核 | 官方建議只在隔離容器/VM 裡用 |
+
+關鍵差異：`auto` mode 仍有分類器把關潛在危險動作；`bypassPermissions` 完全跳過檢查、不保護 prompt injection，Linux/macOS 下用 root/sudo 執行時甚至不能啟用，Claude.ai 網頁版也不支援。
+
+## 參考資料
+
+- [Model Configuration](https://code.claude.com/docs/en/model-config) — model/effort 的 frontmatter 語法、`/model` `/effort` 指令、accepted values
+- [Choosing the right model](https://code.claude.com/docs/en/choosing-a-model) — 官方模型選擇矩陣與多模型組合
+- [Choose a permission mode](https://code.claude.com/docs/en/permission-modes) — 6 種 permission mode 完整定義與風險警告

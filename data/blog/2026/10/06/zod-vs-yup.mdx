@@ -1,0 +1,39 @@
+---
+title: 'Zod vs Yup：差異不大，但細節要知道'
+date: '2026-10-06'
+tags: [typescript, zod, yup, validation]
+draft: false
+summary: '比較 Zod 與 Yup 在驗證失敗行為、型別轉換、未知 key、型別來源與巢狀預設值上的預設差異，並說明實務上的選擇依據。'
+authors: ['YongChen']
+---
+
+# Zod vs Yup：差異不大，但細節要知道
+
+兩者都是 runtime schema 驗證函式庫，用來在不受信任的輸入邊界（localStorage、API 回應、表單、HTML attribute）補上 TypeScript 型別做不到的 runtime 檢查。基本能力相近，差異在預設行為。
+
+## 預設行為比較
+
+| | Zod | Yup |
+|---|---|---|
+| 驗證失敗 | `.parse()` 會 throw `ZodError`；`.safeParse()` 回傳 `{ success, data \| error }`，不 throw | `validateSync()` 會 throw `ValidationError` |
+| 型別轉換 | 預設不轉型，要明確使用 `z.coerce` | 預設會轉型（`"3"` → `3`），`.strict()` 可關閉 |
+| 未知 key | 預設剝除 | 預設保留，要加 `stripUnknown` 才剝除 |
+| 型別來源 | `z.infer` 從 schema 推導，只需寫一份 | 手寫 type，再用 `ObjectSchema<T>` 讓編譯器檢查 schema 是否符合 |
+| Input / output 型別 | `z.input` / `z.output` 分開取得 | — |
+| 巢狀預設值 | `.default()` 會直接回傳預設值、不再 parse，需要讓子欄位預設值生效時改用 `.prefault()` | 物件的預設值會由子欄位的預設值組出 |
+
+## 實務上要注意的點
+
+- **Yup 要包一層**：所有邊界都不想處理 throw 的話，把 try/catch 集中在一個 `safeValidate`，轉成 `{ ok, value | errors }`，效果等同 Zod 的 `safeParse`。
+- **Yup 的自動轉型是靜默的**：如果專案要求所有不合法的輸入都要被回報，就要用 `.strict()`，否則錯誤型別會被悄悄轉換，不會報錯。
+- **手寫 type 的代價**：型別和 schema 要寫兩次，靠 `ObjectSchema<T>` 防止兩邊不一致；Zod 用 `z.infer` 只需寫一份。
+
+## 怎麼選
+
+功能差異不大，所以選擇依據通常是**團隊熟悉度**和需求本身。要嚴格、不轉型、只寫一份 schema，選 Zod；需要寬鬆轉型（例如表單），或團隊原本就用 Yup，選 Yup。差異不大也代表切換成本低，選錯了也容易換。
+
+## 參考資料
+
+- [Zod — Basic usage（parse / safeParse / z.infer）](https://zod.dev/basics)
+- [Zod — API（unknown keys、z.coerce）](https://zod.dev/api)
+- [jquense/yup — README（cast / strict、validateSync、stripUnknown、ObjectSchema）](https://github.com/jquense/yup)

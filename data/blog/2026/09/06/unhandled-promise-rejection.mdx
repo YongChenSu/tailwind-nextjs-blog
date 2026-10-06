@@ -1,0 +1,157 @@
+---
+title: 'Unhandled Promise Rejection 與 window.onunhandledrejection'
+date: '2026-09-06'
+tags: [javascript, error-handling, rollbar]
+draft: false
+summary: '整理 unhandledrejection / rejectionhandled 事件的觸發時機、Promise chain 分支各自獨立判定的陷阱、preventDefault() 的實際作用，以及和 Rollbar 的 captureUnhandledRejections 設定的關係。'
+authors: ['YongChen']
+---
+
+# Unhandled Promise Rejection 與 window.onunhandledrejection
+
+當 Promise 被 reject，且沒有 rejection handler 處理時，瀏覽器會觸發全域的 `unhandledrejection` 事件。它是 Promise 世界的最後一道錯誤安全網，作用類似同步例外會觸發的 `window.onerror`，適合用來偵測程式中遺漏處理的非同步錯誤，但不該取代主要的錯誤處理流程。
+
+## 基本用法
+
+```js
+window.addEventListener('unhandledrejection', event => {
+  console.warn('UNHANDLED PROMISE REJECTION:', event.reason);
+});
+
+// 或
+window.onunhandledrejection = event => {
+  console.warn('UNHANDLED PROMISE REJECTION:', event.reason);
+};
+```
+
+handler 收到的是 `PromiseRejectionEvent`，關鍵屬性：
+
+- `event.reason`：reject 的原因，可以是 `Error`、字串或任何值——但只有 `Error` 通常能保留完整 stack trace。
+- `event.promise`：被判定為未處理的 Promise 本身。
+
+## 什麼時候會觸發？
+
+Promise 被 reject 時不會立刻觸發事件。瀏覽器會先等目前的 JS 執行與 microtask checkpoint 跑完，給程式機會附加 rejection handler，之後才安排全域事件、並再次確認是否已被處理。所以在通知發生前補上 `.catch()`，通常不會觸發 `unhandledrejection`：
+
+```js
+const promise = Promise.reject(new Error('Failed'));
+
+queueMicrotask(() => {
+  promise.catch(error => console.error(error));
+});
+```
+
+但如果 `unhandledrejection` 已經觸發，之後才補上 handler，會改觸發另一個事件 `rejectionhandled`：
+
+```js
+const promise = Promise.reject(new Error('Failed'));
+
+setTimeout(() => {
+  promise.catch(error => console.error(error));
+}, 1000);
+
+window.addEventListener('rejectionhandled', event => {
+  console.log('The rejection was handled later:', event.reason);
+});
+```
+
+不應該依賴「晚一點再補 `.catch()`」，正常流程應在建立 Promise chain 當下就安排錯誤處理。
+
+## 有 .catch() 不代表一定安全
+
+**`.catch()` 裡再次 throw、或回傳另一個 rejected Promise，會產生新的未處理 rejection：**
+
+```js
+Promise.reject(new Error('Failed')).catch(error => {
+  console.error(error);
+  throw error; // 產生新的 rejected Promise，若無人接住仍會觸發 unhandledrejection
+});
+```
+
+**每次 `.then()` / `.catch()` 都會產生新的 Promise，分支各自獨立判定：**
+
+```js
+const original = Promise.reject(new Error('Failed'));
+
+original.catch(error => console.error('Handled in branch A:', error));
+original.then(() => console.log('Branch B')); // 沒有 catch，仍可能觸發 unhandledrejection
+```
+
+「整條 chain 只要有一個 `.catch()` 就安全」是錯的，每條衍生分支都要獨立處理。
+
+## try/catch 要搭配 await
+
+同步的 `try/catch`接不住未被 `await` 的 rejected Promise：
+
+```js
+try {
+  Promise.reject(new Error('Failed')); // 不會被接住
+} catch (error) {}
+
+async function submit() {
+  try {
+    await Promise.reject(new Error('Failed')); // 這樣才會被接住
+  } catch (error) {
+    console.error(error);
+  }
+}
+```
+
+## preventDefault()
+
+`unhandledrejection` 可取消，`event.preventDefault()` 能取消瀏覽器把警告印到 console 的預設行為，但：
+
+- 不會讓 rejected Promise 變成 fulfilled
+- 不會修復原本失敗的操作
+- 不等同於加上 `.catch()`
+- 不會阻止其他 listener 執行
+
+除非已有完整的錯誤記錄機制，否則不建議只為了讓 console 安靜而呼叫它。
+
+## 跨域限制
+
+來自未經適當 CORS 授權、被瀏覽器標記為 muted 的跨域 classic script，其 Promise rejection 不會透過頁面的 `unhandledrejection` 暴露完整資訊。全域 handler 無法保證收到所有第三方 script 的錯誤。
+
+## 和 Rollbar 的關係
+
+Rollbar JS SDK 有兩個對應選項，官方預設都是 `false`：
+
+```js
+new Rollbar({
+  accessToken: ROLLBAR_ACCESS_TOKEN,
+  captureUncaught: false,           // 全域同步未捕捉例外
+  captureUnhandledRejections: false, // 全域 unhandledrejection
+});
+```
+
+關掉這兩個選項只代表關掉全域自動擷取，程式仍可以主動呼叫 `rollbar.error()` / `.warning()` / `.critical()` 等做結構化回報，保留自訂 error code。
+
+**開啟全域自動回報的取捨：**
+
+| 優點 | 缺點 |
+|---|---|
+| 補上開發者遺漏處理的例外/rejection | 可能收到第三方或注入程式碼造成的雜訊 |
+| 不用每個非同步流程都手動呼叫 | 自動事件通常沒有 error code，難分類 |
+| 能發現原本只留在使用者 console 的錯誤 | 同一問題可能手動+自動重複回報，額度消耗變多 |
+
+若要開啟，通常要搭配 `checkIgnore` / `ignoredMessages` 等過濾機制降低雜訊。
+
+**建議：** 全域自動回報適合當安全網，不該取代程式本身的錯誤處理。可預期的失敗還是要在發生點附近處理，才能同時給使用者正確回饋、保留業務情境的 error code、並決定是否重試或降級：
+
+```js
+try {
+  await submitForm();
+} catch (error) {
+  showErrorMessage();
+  rollbar.error('[ER0001] Submit form failed', error);
+}
+```
+
+`unhandledrejection` 比較適合抓「理論上不該漏掉、但實際上漏掉了」的程式錯誤，不是主要的錯誤控制流程。
+
+## 參考資料
+
+- [MDN: Window: unhandledrejection event](https://developer.mozilla.org/en-US/docs/Web/API/Window/unhandledrejection_event)
+- [MDN: Window: rejectionhandled event](https://developer.mozilla.org/en-US/docs/Web/API/Window/rejectionhandled_event)
+- [HTML Standard: Unhandled promise rejections (8.1.4.7)](https://html.spec.whatwg.org/multipage/webappapis.html#unhandled-promise-rejections)
+- [Rollbar.js Configuration Reference](https://docs.rollbar.com/docs/rollbarjs-configuration-reference)
