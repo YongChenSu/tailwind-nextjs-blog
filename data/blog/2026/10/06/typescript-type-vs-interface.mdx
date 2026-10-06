@@ -1,0 +1,59 @@
+---
+title: 'TypeScript：type 和 interface 的差異'
+date: '2026-10-06'
+tags: [typescript]
+draft: false
+summary: '整理 type 與 interface 在描述能力、declaration merging、擴充方式、屬性衝突、index signature 與編譯效能上的差異，並說明實務上該如何選擇。'
+authors: ['YongChen']
+---
+
+# TypeScript：type 和 interface 的差異
+
+兩者在描述物件形狀時幾乎可以互換。官方文件的說法是：最關鍵的差別在於，`type` 建立後不能重新打開來加屬性，`interface` 則永遠可以擴充。
+
+## 核心差異
+
+| | `type` | `interface` |
+|---|---|---|
+| 能描述什麼 | 任何型別：union、tuple、primitive 別名、mapped / conditional / template literal type | 只能描述物件的形狀 |
+| Declaration merging | 不行，同名會報 `Duplicate identifier` | 可以，同名會自動合併 |
+| 擴充方式 | `&`（intersection） | `extends` |
+| 屬性衝突 | 不在宣告時報錯，衝突的屬性可能變成 `never` | 宣告當下就報錯 |
+| 隱含 index signature | 有，能 assign 給 `Record<string, unknown>` | 沒有，會報 `Index signature is missing` |
+| 編譯效能 | 檢查 intersection 時要逐一檢查每個成員 | 型別關係會被快取，通常比較快 |
+
+## Declaration merging：interface 不可取代的用途
+
+擴充全域或第三方函式庫的型別，只能靠 interface：
+
+```ts
+interface Window {
+  myGlobal: string;
+}
+```
+
+上面的宣告會合併進全域的 `Window` 型別。
+
+實際案例：用 React 包 Custom Element 時，要讓自訂標籤通過 JSX 的型別檢查，必須擴充 `JSX.IntrinsicElements`，這個介面需要 declaration merging，`type` 無法做到。即使專案規定「一律用 type」，這裡也只能破例。
+
+## Intersection 的陷阱
+
+```ts
+type A = { id: string };
+type B = { id: number };
+type C = A & B; // 不報錯，但 C['id'] 是 never
+```
+
+如果改用 `interface C extends A`，並把 `id` 宣告成 `number`，會在宣告當下就報錯。
+
+## 怎麼選
+
+- **TS 官方建議**：先用 `interface`，需要 `type` 才有的功能時再換。
+- **統一用 `type` 的理由**：專案常需要 union（例如 discriminated union 的驗證結果）；統一規則好維護；不會因為同名而靜默合併。
+- **一句話記憶**：`interface` 是可以被擴充的物件契約，`type` 是任意型別的別名。
+
+## 參考資料
+
+- [TypeScript Handbook — Differences Between Type Aliases and Interfaces](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#differences-between-type-aliases-and-interfaces)
+- [TypeScript Wiki — Performance: Preferring Interfaces Over Intersections](https://github.com/microsoft/TypeScript/wiki/Performance#preferring-interfaces-over-intersections)
+- [microsoft/TypeScript#15300 — Index signature is missing in type (only on interfaces, not on type alias)](https://github.com/microsoft/TypeScript/issues/15300)
