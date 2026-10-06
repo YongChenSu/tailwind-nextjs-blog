@@ -1,0 +1,62 @@
+---
+title: 'Claude Code 的 Context Window 與 `/compact`'
+date: '2026-09-06'
+tags: [claude-code, settings, memory]
+draft: false
+summary: '整理 Claude Code context window 啟動時自動載入的內容、`/compact` 保留與捨棄什麼、跟 `/clear` 的差異，以及自動觸發 compact 其實有依 model 而異的預設閾值。'
+authors: ['YongChen']
+---
+
+# Claude Code 的 Context Window 與 `/compact`
+
+Claude Code 每個 session 開始時都是一個空的 context window，隨對話進行不斷填入內容；`/compact` 是把逐字對話換成結構化摘要，藉此空出空間的機制——可以手動觸發，也會在接近上限時自動執行。
+
+## Context window 裡裝了什麼
+
+每個 session 啟動時，以下內容會**自動載入**（使用者看不到，但都佔用 token）：
+
+- **System prompt**：核心行為指令，永遠最先載入。
+- **Auto memory（`MEMORY.md`）**：Claude 從前幾次對話學到的東西（建置指令、慣例、要避免的錯誤），只載入前 200 行或 25KB（取先達到者）。
+- **環境資訊**：工作目錄、平台、shell、是否為 git repo；git branch、status、近期 commits 則是另外放在 system prompt 最後的獨立區塊。
+- **MCP 工具清單**：預設只列名稱，完整 schema 按需載入。
+- **Skills 索引**：每個 skill 的一行描述，讓 Claude 知道有什麼可以呼叫；完整內容要實際觸發才載入。標了 `disable-model-invocation: true` 的 skill 不會出現在這份索引裡，要靠 `/name` 手動叫出才進 context。
+- **`~/.claude/CLAUDE.md`**（使用者全域偏好）與**專案 `CLAUDE.md`**（專案慣例、架構）。
+
+之後每次讀檔、每次 hook 觸發、每次工具輸出，都會持續累積進這個 window。
+
+## `/compact` 做的事
+
+`/compact` 把目前的對話**替換成一份結構化摘要**，藉此空出 context 空間，同時盡量保留還在做的事。
+
+- **保留**：使用者的意圖、關鍵技術決定、已改過的檔案與重要程式碼片段、還沒做完的任務、目前進度。
+- **捨棄**：完整工具輸出、中間推理過程、逐字對話紀錄。
+- **摘要之後會重新載入**：
+  - System prompt、output style——不算在對話歷史裡，完全不受影響。
+  - 專案根目錄 `CLAUDE.md`、沒有 `paths:` 的規則、auto memory、plan mode 寫的 plan——從硬碟重新讀入。
+  - 有 `paths:` frontmatter 的規則、子目錄裡的巢狀 `CLAUDE.md`——要等 Claude 之後又讀到符合的檔案才會重新載入。
+  - **最近讀過或改過的檔案**：重新讀取最多 5 個，依修改時間排序（最近修改的優先）；單一檔案若超過 5,000 token，只會回傳路徑參照（顯示為 `Referenced file`），不含完整內容，但對應的 rules 仍會重新載入。
+  - **已經被實際呼叫過的 skill**：內容會重新注入，每個 skill 上限 5,000 token，所有已呼叫 skill 合計上限 25,000 token，超出預算時最早呼叫的先被丟棄。
+- **不會重新載入**：skill 索引本身（沒被呼叫過的 skill 描述清單不會再出現，只有已呼叫過的才留著）。
+
+## 自動觸發 vs 手動觸發
+
+- **自動**：接近 context 上限時自動執行一次 compact，行為跟手動 `/compact` 一樣。閾值依 model 而異，官方文件列有各 model 的預設 auto-compact 閾值，可以用 `/autocompact <token count>` 調整（例如 `/autocompact 500k`）。
+- **手動**：`/compact [instructions]`，可指定摘要要聚焦的重點（例如 `/compact focus on the auth bug fix`）。官方建議時機是「context 開始影響表現時」或「開始一個新的大任務前」。
+- 另外還有 `/rewind` 可以只 summarize 對話的一部分（從某則訊息開始或到某則訊息為止），適合只想壓縮某段而不是整個對話的情況。
+
+## 和 `/clear` 的差別
+
+| | `/compact` | `/clear` |
+|---|---|---|
+| 對話歷史 | 換成摘要，保留意圖與進度 | 整個清空 |
+| 用途 | 釋放空間但接續同一件事 | 開新任務、重新開始 |
+| 復原 | 摘要留在當前 session | 需要 `/resume` 才能找回舊對話 |
+
+## 補充：常見誤解
+
+「compact 後指令不見了」通常不是 compact 本身的問題，而是這條指令本來就只存在於對話裡、沒寫進 `CLAUDE.md`；或它在一個還沒被重新讀到的巢狀 `CLAUDE.md`；或它是一條 `paths:` 規則、compact 後還沒有符合的檔案被讀取。要讓指令長期穩定生效，該寫進專案根目錄的 `CLAUDE.md`，而不是只在對話裡交代一次。
+
+## 參考資料
+
+- [Explore the context window](https://code.claude.com/docs/en/context-window) — Claude Code 官方文件，context window 各階段載入內容的互動說明，含「What survives compaction」完整對照表
+- [How Claude remembers your project](https://code.claude.com/docs/en/memory) — 官方文件，CLAUDE.md 與 auto memory 機制，含「Instructions seem lost after `/compact`」除錯章節

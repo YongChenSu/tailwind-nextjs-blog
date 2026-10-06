@@ -1,0 +1,74 @@
+---
+title: 'Claude Code 的專案設定機制：CLAUDE.md、.claude/rules/、Auto Memory、Hooks'
+date: '2026-09-05'
+tags: [claude-code, settings, memory]
+draft: false
+summary: '整理 Claude Code 跨 session 保留知識的兩套機制（CLAUDE.md 與 auto memory）、.claude/rules/ 的條件式載入，以及「context」和「強制執行」的關鍵區分——真正能無條件擋下動作的只有 hooks。'
+authors: ['YongChen']
+---
+
+# Claude Code 的專案設定機制：CLAUDE.md、.claude/rules/、Auto Memory、Hooks
+
+Claude Code 每次 session 都是全新 context，靠 CLAUDE.md（你寫的規則）和 auto memory（Claude 自己記的筆記）兩套機制跨 session 保留知識。兩者都在對話一開始被載入，但都只是「context」，不是「強制設定」。
+
+## CLAUDE.md
+
+- **放哪裡**：`~/.claude/CLAUDE.md`（user，個人偏好，跨專案生效）、`./CLAUDE.md` 或 `./.claude/CLAUDE.md`（project，團隊共用，進版控）、`./CLAUDE.local.md`（個人專案偏好，要加進 `.gitignore`）。還有企業層級的 managed policy CLAUDE.md（IT/DevOps 統一部署，個人設定無法排除）。
+- **載入規則**：目前工作目錄與其所有上層目錄的 CLAUDE.md / CLAUDE.local.md 會在啟動時載入；子目錄裡的 CLAUDE.md 則是 Claude 讀到該目錄下的檔案時才按需載入。多份檔案是**串接**而非互相覆蓋，離工作目錄越近的排序越後面（越晚被讀到）。
+- **建議篇幅**：單一檔案控制在 200 行以內，超過會吃更多 context、降低遵循度。
+- **寫法**：用 markdown 分段；規則要「concrete enough to verify」，例如「Use 2-space indentation」優於「Format code properly」。
+- **`@path` import**：可以在 CLAUDE.md 裡用 `@path/to/file` 引入其他檔案，但**引入的內容一樣會在啟動時整份載入 context**，只是幫助組織可讀性，不省 token。
+- **AGENTS.md**：Claude Code 不讀 `AGENTS.md`，如果 repo 已經有這份檔案給其他 agent 用，做法是建一個 `CLAUDE.md` 用 `@AGENTS.md` 引入它，下面再補 Claude 專屬指令，或直接用 symlink。
+
+## `.claude/rules/`：按路徑條件式載入
+
+這是官方機制，不是社群自創，也不是跟 Cursor 的 `.cursor/rules/` 搞混：
+
+- 每個規則放一個檔案，一檔一主題（如 `testing.md`、`api-design.md`），會遞迴掃描子資料夾。
+- 沒有 `paths` frontmatter 的規則，啟動時就無條件載入，優先度跟 `.claude/CLAUDE.md` 一樣。
+- 有 `paths` frontmatter 的規則是**條件式**的，只有在 Claude 讀到符合 glob 的檔案時才觸發載入，藉此省 context、減少不相關規則稀釋注意力：
+
+```markdown
+---
+paths:
+  - "src/api/**/*.ts"
+---
+
+# API Development Rules
+- All API endpoints must include input validation
+```
+
+- `~/.claude/rules/` 是 user 層級版本，適合放跨專案的個人偏好，且會比 project rules 先載入（所以 project rules 優先度較高）。
+- 支援 symlink，可以把一份共用規則連結進多個專案。
+
+## Auto Memory：Claude 自己寫的筆記
+
+- 跟 CLAUDE.md 不同，auto memory 是 Claude 自己判斷、自己寫的，分四種 type：user（你的角色/偏好）、feedback（你給過的修正/確認過的做法）、project（進行中的工作/決策）、reference（外部資訊的位置）。
+- 存放位置：`~/.claude/projects/<project>/memory/`，裡面有一個 `MEMORY.md` 索引（每次 session 只載入前 200 行或 25KB）+ 各主題檔案（不在啟動時載入，Claude 需要時才用讀檔工具去查）。
+- 定位很明確：coding standards / workflow / architecture 該放 CLAUDE.md，不該塞進 auto memory。
+- 可以用 `/memory` 開關（寫進 `~/.claude/settings.json` 的 `autoMemoryEnabled`），或環境變數 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` 關閉。
+
+## 關鍵區分：「期望遵守」vs「強制執行」
+
+官方文件原話：
+
+> Claude treats them as context, not enforced configuration. To block an action regardless of what Claude decides, use a PreToolUse hook instead.
+
+也就是說，CLAUDE.md、.claude/rules/、auto memory 全部都只是「盡量遵守」，沒有任何保證。真正能做到「不管 Claude 怎麼判斷都會被擋下」的，只有 hooks——它是使用者定義的 shell 指令，在特定生命週期節點自動執行，提供 deterministic control。實務分工建議：
+
+- 能容忍偶爾沒做到的規則（命名風格、目錄慣例）→ 寫進 CLAUDE.md / .claude/rules/。
+- 絕對不能發生的事（commit 前必須跑 lint、不能碰 .env）→ 寫 PreToolUse hook。
+
+## `/memory` 與 `/context`
+
+- `/memory`：列出 CLAUDE.md、CLAUDE.local.md、auto memory 資料夾等所有位置（包含還不存在的檔案），選一項用編輯器打開，也能切換 auto memory 開關。
+- `/context`：視覺化目前這個對話實際載入了多少 context，按 agents、memory files、skills、messages 等分佈，以及 freespace 還剩多少。要確認某個 `.claude/rules/*.md` 有沒有因為 `paths` glob 命中而真的被載入，要看 `/context`，不是 `/memory`。
+
+## 補充：Monorepo
+
+大型 monorepo 可以在各子目錄各自放 CLAUDE.md，搭配根目錄的全域 CLAUDE.md；如果會撈到不相關團隊的 CLAUDE.md，可以用 `claudeMdExcludes` 設定排除特定路徑。
+
+## 參考資料
+
+- [How Claude remembers your project](https://code.claude.com/docs/en/memory) — 官方文件，CLAUDE.md、.claude/rules/、auto memory、/memory 的完整說明，本文大部分內容的一手來源
+- [Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide) — 官方文件，hooks 的設計目的與 deterministic control 說明
