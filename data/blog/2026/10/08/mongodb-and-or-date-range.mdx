@@ -1,0 +1,61 @@
+---
+title: 'MongoDB 用 $and / $or 查「年、月分開存」的日期區間'
+date: '2026-10-08'
+tags: [mongodb]
+draft: false
+summary: '當日期拆成 year/month 兩個欄位存時，示範如何用 $or 包起點與終點條件、再用 $and 組合出區間查詢，並說明為什麼不能把兩個 $or 放在同一層物件裡。'
+authors: ['YongChen']
+---
+
+當日期存成 `data_time.year` 和 `data_time.month` 兩個欄位時，沒辦法直接寫 `>= 2025/10`。要拆成「年份比較」加上「年份相同時比月份」，再用 `$or` 與 `$and` 組合。
+
+## 會用到的運算子
+
+- **`$gt` / `$gte` / `$lt` / `$lte`**：大於、大於等於、小於、小於等於。
+- **`$or`**：陣列中**任一個**條件成立就符合。
+- **`$and`**：陣列中**每一個**條件都要成立。
+- **同一個物件裡寫多個 key**：隱含 AND。例如 `{ "data_time.year": 2025, "data_time.month": { $gte: 10 } }` 表示年份是 2025 而且月份 ≥ 10。
+
+## 查詢怎麼拆
+
+目標：找出 2025/10 到 2026/3 之間的資料。
+
+```js
+{
+  $and: [
+    // 起點：2025/10 或之後
+    { $or: [
+      { "data_time.year": { $gt: 2025 } },
+      { "data_time.year": 2025, "data_time.month": { $gte: 10 } },
+    ]},
+    // 終點：2026/3 或之前
+    { $or: [
+      { "data_time.year": { $lt: 2026 } },
+      { "data_time.year": 2026, "data_time.month": { $lte: 3 } },
+    ]},
+  ],
+}
+```
+
+- 起點：年份晚於 2025 的全部算，或年份剛好是 2025 且月份 ≥ 10 的也算。
+- 終點：年份早於 2026 的全部算，或年份剛好是 2026 且月份 ≤ 3 的也算。
+- 兩個條件（起點、終點）要同時成立，所以用 `$and` 包起來。
+
+## 為什麼不直接寫兩個 `$or`
+
+```js
+{ $or: [...起點], $or: [...終點] }   // ❌
+```
+
+同一層物件不能有兩個同名的 key。MongoDB 文件指出，多數語言與 driver（含 `mongosh`）不允許建出重複 key 的物件，建議的做法是改用明確的 `$and`。在 JavaScript 物件字面值裡，後面的 key 會蓋掉前面的，所以起點條件會悄悄消失，而且不會報錯（這點是 JS 語言行為，不是文件內容）。
+
+## 常見錯誤
+
+- **把兩個 `$or` 放同一層**：其中一個被蓋掉。
+- **用純函式合併條件物件時**：`{ ...a, ...b }` 如果 `a`、`b` 都有 `$and`，後者會蓋掉前者。要合併，需要把兩個 `$and` 陣列接起來。
+
+## 參考資料
+
+- [`$or` — MongoDB Manual](https://www.mongodb.com/docs/manual/reference/operator/query/or/)
+- [`$and` — MongoDB Manual（含重複 key 與明確 AND 的說明）](https://www.mongodb.com/docs/manual/reference/operator/query/and/)
+- [Comparison Query Operators — MongoDB Manual（`$gt` / `$gte` / `$lt` / `$lte`）](https://www.mongodb.com/docs/manual/reference/mql/query-predicates/comparison/)
