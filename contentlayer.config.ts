@@ -1,5 +1,5 @@
 import { defineDocumentType, ComputedFields, makeSource } from 'contentlayer2/source-files'
-import { writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import readingTime from 'reading-time'
 import { slug } from 'github-slugger'
 import path from 'path'
@@ -27,8 +27,6 @@ import { allCoreContent, sortPosts } from 'pliny/utils/contentlayer.js'
 import prettier from 'prettier'
 
 const root = process.cwd()
-const isProduction = process.env.NODE_ENV === 'production'
-
 // heroicon mini link
 const icon = fromHtmlIsomorphic(
   `
@@ -65,7 +63,7 @@ const computedFields: ComputedFields = {
 async function createTagCount(allBlogs) {
   const tagCount: Record<string, number> = {}
   allBlogs.forEach((file) => {
-    if (file.tags && (!isProduction || file.draft !== true)) {
+    if (file.tags && file.draft !== true) {
       file.tags.forEach((tag) => {
         const formattedTag = slug(tag)
         if (formattedTag in tagCount) {
@@ -76,8 +74,23 @@ async function createTagCount(allBlogs) {
       })
     }
   })
-  const formatted = await prettier.format(JSON.stringify(tagCount, null, 2), { parser: 'json' })
-  writeFileSync('./app/tag-data.json', formatted)
+
+  const sortedTagCount = Object.fromEntries(
+    Object.entries(tagCount).sort(([tagA], [tagB]) => {
+      if (tagA < tagB) return -1
+      if (tagA > tagB) return 1
+      return 0
+    })
+  )
+  const formatted = await prettier.format(JSON.stringify(sortedTagCount, null, 2), {
+    parser: 'json',
+  })
+  const tagDataPath = path.join(root, 'app/tag-data.json')
+  const current = existsSync(tagDataPath) ? readFileSync(tagDataPath, 'utf8') : ''
+
+  if (current !== formatted) {
+    writeFileSync(tagDataPath, formatted)
+  }
 }
 
 function createSearchIndex(allBlogs) {
@@ -181,7 +194,7 @@ export default makeSource({
   },
   onSuccess: async (importData) => {
     const { allBlogs } = await importData()
-    createTagCount(allBlogs)
+    await createTagCount(allBlogs)
     createSearchIndex(allBlogs)
   },
 })
