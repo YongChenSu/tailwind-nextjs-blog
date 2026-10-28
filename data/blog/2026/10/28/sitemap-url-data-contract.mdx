@@ -1,0 +1,188 @@
+---
+title: '把頁面放進 Sitemap：URL、資料與前後端契約'
+date: '2026-10-28'
+tags: [seo, sitemap]
+draft: false
+summary: '把公司評價面向與制度頁加入 sitemap 時，整理出三個要分開回答的問題：哪些頁面真的存在、哪些值得收錄、前後端如何避免產生不同的 URL。並記錄用 Google 文件驗證過的 sitemap 限制與 canonical 關係。'
+authors: ['YongChen']
+---
+
+# 把頁面放進 Sitemap：URL、資料與前後端契約
+
+這次需求看似只是把公司評價面向與制度頁加入 sitemap，實際上需要回答三個問題：
+
+1. 哪些 URL 是前端真正存在的頁面？
+2. 哪些頁面有足夠內容，值得主動交給搜尋引擎？
+3. 如何降低前後端 URL 不同步的風險？
+
+## Sitemap 不是網站的完整 URL 清單
+
+Sitemap 是網站提供給搜尋引擎的 URL 清單，用來表達哪些頁面重要、希望被搜尋引擎發現。它可以協助 Google 檢索頁面，但不保證頁面一定會被建立索引。Google：Sitemap 基本概念 (https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview)
+
+因此，這次沒有替每間公司無條件產生所有可能的 URL，而是為每種頁面定義自己的 hasData 條件：
+
+```ts
+const COMPANY_PAGE_DEFINITIONS = [
+  {
+    path: 'salary-work-times',
+    hasData: (company) => company.salaryWorkTimeCount > 0,
+  },
+  {
+    path: 'work-experiences',
+    hasData: hasExperience(EXPERIENCE_TYPE.WORK),
+  },
+]
+```
+
+產生 sitemap 時，只收錄有資料的頁面：
+
+```ts
+if (page.hasData(company)) {
+  yield {
+    url: `${baseUrl}/${page.path}`,
+    changefreq: 'weekly',
+  }
+}
+```
+
+使用 hasData 而不是回傳數量再判斷 > 0，更能直接表達真正的需求：我們在意的是頁面是否有任何可顯示的資料，而不是不同資料來源加總後的數字。
+
+## 為什麼不能直接產生所有固定 URL？
+
+總覽、薪水與加班、評價、面試原本就有固定路徑：
+
+```
+/companies/{company}/salary-work-times
+/companies/{company}/work-experiences
+/companies/{company}/interview-experiences
+```
+
+新增評價面向後，資料庫存的是中文名稱，網址則使用英文 slug：
+
+```
+性別友善度       → work-experiences/gender-friendly
+工作與生活平衡   → work-experiences/work-life-balance
+公司/團隊文化    → work-experiences/culture
+```
+
+中文資料值無法自動推導出英文 slug，所以仍然需要明確的 mapping。
+
+制度頁也是相同情況：
+
+```
+PARENTAL_LEAVE → family-childcare/parental-leave
+REMOTE_WORK    → family-childcare/remote-work
+```
+
+明確列出 mapping 也能避免資料庫新增一個面向時，後端自動產生一條前端尚未支援的 URL。
+
+## 為什麼不直接使用 PREDEFINED_WORK_ASPECTS？
+
+PREDEFINED_WORK_ASPECTS 定義的是資料庫允許哪些面向，但不代表每個面向都有獨立頁面。
+
+例如 constants 中包含「生育福利」，前端目前卻沒有相對應的獨立 URL。如果直接遍歷這份陣列，可能產生不存在的頁面。
+
+因此兩者的責任不同：
+
+- PREDEFINED_WORK_ASPECTS：驗證資料庫允許的值。
+- COMPANY_PAGE_DEFINITIONS：定義前端存在的頁面及其收錄條件。
+
+雖然中文名稱有少量重複，但在這次 PR 中保留明確 mapping，比擴大修改 model constants 更容易確認影響範圍。相關 mapping 由測試保護，後續若使用範圍增加，再抽成共用 enum。
+
+## 父頁與子頁的條件不相同
+
+制度子頁只檢查自己的資料：
+
+- 育嬰假頁只看育嬰假制度評論。
+- 遠端工作頁只看遠端工作制度評論。
+- 生理假頁只看生理假制度評論。
+
+父頁則要對照前端實際顯示的所有內容。
+
+「家庭／育兒」總覽會顯示：
+
+- 工作與生活平衡
+- 性別友善度
+- 育嬰假
+- 家庭照顧假
+- 彈性工時
+- 遠端工作
+
+因此，只要其中一項有資料，就應該收錄：
+
+```ts
+const hasFamilyChildcareData = (company) =>
+  FAMILY_CHILDCARE_POLICIES.some((policy) => getPolicyReviewCount(company, policy) > 0) ||
+  FAMILY_CHILDCARE_ASPECTS.some((aspect) => getAspectRatingCount(company, aspect) > 0)
+```
+
+「性別友善」總覽則同時顯示性別友善度與生理假：
+
+```ts
+const hasGenderFriendlyData = (company) =>
+  getPolicyReviewCount(company, POLICY.MENSTRUAL_LEAVE) > 0 ||
+  getAspectRatingCount(company, '性別友善度') > 0
+```
+
+這次一個重要發現是：sitemap 的收錄條件不能只看頁面名稱或主要資料表，必須對照前端實際呈現的所有主要內容。否則有面向評分、但沒有制度評論的總覽頁會被錯誤排除。
+
+## 資料數為零的頁面要不要加入 Sitemap？
+
+Google 沒有規定「資料數為零就不能放進 sitemap」。這是根據頁面內容做出的產品判斷。
+
+Google 建議 sitemap 收錄網站希望出現在搜尋結果中的 canonical URL。Google：建立 Sitemap (https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)
+
+另外，放進不希望被收錄的頁面，可能浪費 crawl budget。Google：檢索錯誤與效率 (https://developers.google.com/search/docs/crawling-indexing/troubleshoot-crawling-errors)
+
+如果頁面回傳 200，內容卻是空白、近乎空白或看起來像錯誤訊息，Google 可能將它視為 soft 404。Google：Soft 404 (https://developers.google.com/search/docs/crawling-indexing/troubleshoot-crawling-errors#soft-404-errors)
+
+因此，這次採取較保守的策略：
+
+- 總覽頁：只要頁面任一主要內容有資料就收錄。
+- 子頁：只有該子頁自己的資料存在才收錄。
+- 沒有公司專屬內容的頁面不主動提交。
+
+## 後端寫死路徑能消除同步風險嗎？
+
+不能完全消除，但可以讓風險變得明確且可測試。
+
+由後端列出固定路徑，可以避免 sitemap 產生時依賴前端 API，也不會受到部署順序或前端服務可用性的影響。
+
+但如果前端重新命名或移除路由，後端仍然需要同步更新。長期可以考慮：
+
+- 前後端共用 route contract。
+- 從前端路由設定產生 sitemap mapping。
+- 加入 integration test，確認 sitemap URL 不會回傳 404。
+- 上線後透過 Search Console 的 Sitemap report 與 URL Inspection 監控。
+
+Sitemap 可以表達網站偏好的 canonical URL，但只是一個弱訊號，Google 最終仍會自行判斷 canonical。Google：Sitemap 與 canonical (https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls#sitemap-method)
+
+此外，URL 出現在 sitemap 中，也不保證一定會被檢索或建立索引。Google：Sitemap 基本概念 (https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview)
+
+## 如何驗證產出的 Sitemap？
+
+除了單元測試，這次也解析了真正產出的 XML，檢查：
+
+- XML 格式是否合法。
+- Sitemap index 是否引用所有分檔。
+- 是否存在重複或格式錯誤的 URL。
+- 各頁面是否使用正確的 changefreq。
+- 有資料的面向與制度頁是否被收錄。
+- 資料數為零的制度子頁是否被排除。
+
+單一 sitemap 最多只能包含 50,000 個 URL，未壓縮大小也不能超過 50 MB；超過時要拆成多份，再用 sitemap index 管理。Google：Sitemap 大小限制 (https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap#sitemap-best-practices)
+
+實際產出共拆成四份公司 sitemap，每份都低於 URL 上限，也沒有重複、非法或未知路徑。
+
+## 這次學到的事
+
+Sitemap 不只是把網址輸出成 XML，它其實是一份「哪些頁面值得讓搜尋引擎看到」的資料契約。
+
+這次可以帶走幾個經驗：
+
+- 資料值與 URL 結構是兩件事，需要明確 mapping。
+- 資料庫 constants 不能直接代表前端一定有對應頁面。
+- hasData 比「回傳數量再判斷」更貼近需求語意。
+- 父頁要考慮所有主要內容來源，子頁只檢查自己的資料。
+- 後端固定路徑能降低執行期依賴，但不能完全消除前後端同步風險。
+- 單元測試之外，仍應解析實際 sitemap，並抽樣回查資料庫。
