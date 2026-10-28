@@ -1,5 +1,3 @@
-![banner](/public/static/images/twitter-card.png)
-
 # Coding and Climbing — YongChen's Blog
 
 我是 YongChen，一位前端工程師，擁有超過 5 年的開發經驗，專精 Next.js、React 與 TypeScript。
