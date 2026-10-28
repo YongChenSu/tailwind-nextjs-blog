@@ -36,7 +36,9 @@
   --color-gray-900: oklch(0.21 0.034 264.665);
   --color-gray-950: oklch(0.13 0.028 261.692); */
 
-  --color-primary-600: oklch(0.55 0.195 38.402);
+  --color-primary-400: #2dd4bf;
+  --color-primary-500: #0f766e;
+  --color-primary-600: #115e59;
 
   --color-base-100: oklch(98% 0.016 73.684);
   --color-base-200: oklch(95% 0.038 75.164);
@@ -48,7 +50,7 @@
   --color-secondary-content: oklch(90% 0.076 70.697);
   --color-accent: oklch(46.44% 0.111 37.85);
   --color-accent-content: oklch(90% 0.076 70.697);
-  --color-neutral: oklch(55% 0.195 38.402);
+  --color-neutral: #0f766e;
   --color-neutral-content: oklch(98% 0.016 73.684);
   --color-info: oklch(42% 0.199 265.638);
   --color-info-content: oklch(90% 0.076 70.697);
@@ -102,6 +104,32 @@
   color utility to any element that depends on these defaults.
 */
 @layer base {
+  :root {
+    --bg: #ffffff;
+    --text: #374151;
+    --heading: #111827;
+    --muted: #6b7280;
+    --accent: #0f766e;
+    --accent-hover: #115e59;
+    --code-inline-bg: rgb(15 118 110 / 8%);
+    --code-inline-text: #115e59;
+  }
+
+  .dark {
+    --bg: #111827;
+    --text: #d1d5db;
+    --heading: #f3f4f6;
+    --muted: #9ca3af;
+    --accent: #2dd4bf;
+    --accent-hover: #5eead4;
+    --code-inline-bg: rgb(255 255 255 / 8%);
+    --code-inline-text: #e5e7eb;
+    --color-neutral: #2dd4bf;
+    --color-primary-400: #5eead4;
+    --color-primary-500: #2dd4bf;
+    --color-primary-600: #14b8a6;
+  }
+
   *,
   ::after,
   ::before,
@@ -279,14 +307,19 @@
   }
 
   .prose {
+    color: var(--text);
+
     & a {
-      color: var(--color-primary-500);
+      color: var(--accent);
       &:hover {
-        color: var(--color-primary-600);
+        color: var(--accent-hover);
       }
       & code {
-        color: var(--color-primary-400);
+        color: var(--code-inline-text);
       }
+    }
+    & :where(h1, h2, h3, h4, h5, h6) {
+      color: var(--heading);
     }
     & :where(h1, h2) {
       font-weight: 700;
@@ -296,22 +329,19 @@
       font-weight: 600;
     }
     & :where(code):not(pre code) {
-      color: var(--color-indigo-500);
-    }
-  }
+      padding: 0.1em 0.35em;
+      color: var(--code-inline-text);
+      background-color: var(--code-inline-bg);
+      border: 0;
+      border-radius: var(--radius-sm);
+      font-weight: 400;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
 
-  .prose-invert {
-    & a {
-      color: var(--color-primary-500);
-      &:hover {
-        color: var(--color-primary-400);
+      &::before,
+      &::after {
+        content: none;
       }
-      & code {
-        color: var(--color-primary-400);
-      }
-    }
-    & :where(h1, h2, h3, h4, h5, h6) {
-      color: var(--color-gray-100);
     }
   }
 }
