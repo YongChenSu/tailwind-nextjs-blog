@@ -7,6 +7,7 @@
   "claude-code": 6,
   "cli": 1,
   "cross-env": 1,
+  "css": 1,
   "cursor": 1,
   "docker": 1,
   "dotenv": 1,
@@ -40,6 +41,7 @@
   "scraper": 1,
   "seo": 1,
   "settings": 4,
+  "shadow-dom": 1,
   "sitemap": 1,
   "ssh": 1,
   "ssr": 1,
@@ -47,6 +49,7 @@
   "try-catch": 1,
   "typescript": 5,
   "validation": 1,
+  "web-components": 1,
   "yup": 1,
   "zod": 1
 }
