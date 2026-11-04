@@ -1,0 +1,279 @@
+---
+title: 'Shadow DOM 是什麼？從實際場景理解元件封裝與 CSS 隔離'
+date: '2026-11-04'
+tags: [shadow-dom, web-components, css]
+draft: false
+summary: 'Shadow DOM 是瀏覽器原生的封裝機制，能為元件建立獨立的 DOM 與 CSS 邊界。本文整理它解決的問題、實務用法、發展歷史與採用率，並與 CSS Modules、styled-components、Scoped CSS、iframe 比較適用情境。'
+authors: ['YongChen']
+---
+
+# Shadow DOM 是什麼？從實際場景理解元件封裝與 CSS 隔離
+
+隨著網站規模變大，CSS 樣式可能互相影響，元件內部結構也可能被外部程式誤改。Shadow DOM 是瀏覽器提供的原生封裝機制，用來建立獨立的 DOM 與樣式邊界。
+
+## Shadow DOM 是什麼？
+
+Shadow DOM 允許一個 HTML 元素擁有獨立的內部結構與 CSS。
+
+例如：
+
+```html
+<product-card></product-card>
+```
+
+表面上只有一個元素，但它的內部可以包含圖片、標題、價格和按鈕。這些內容被封裝在 Shadow DOM 中，不會直接混入頁面的普通 DOM。
+
+可以把普通 DOM 想成共用空間，而 Shadow DOM 就像元件自己的房間：外部可以使用房間提供的功能，但不需要知道內部如何布置。
+
+## Shadow DOM 解決了哪些問題？
+
+### CSS 樣式互相影響
+
+一般 CSS 預設是全域的：
+
+```css
+button {
+  color: red;
+}
+```
+
+這段規則可能影響頁面中的所有按鈕。
+
+Shadow DOM 內的 CSS 只作用於該 Shadow Tree；外部 CSS 選擇器通常也無法直接選取內部元素。不過，`color`、`font-family` 等可繼承屬性、CSS 變數，以及元件主動開放的 `::part()` 樣式介面，仍可跨越 Shadow DOM 邊界；透過 `<slot>` 傳入的內容也仍會套用頁面的樣式。因此，元件放到不同網站時，比較不會被宿主網站的 CSS 規則打亂版面。
+
+### 外部程式依賴內部結構
+
+元件使用者只需要知道它的公開介面：
+
+```html
+<product-card name="無線耳機" price="NT$1,290"></product-card>
+```
+
+至於內部使用多少個 `<div>` 或有哪些 class，應該由元件自行管理。如此一來，元件作者可以重構內部 HTML，而不會影響外部程式。
+
+### DOM 操作意外影響元件
+
+一般查詢不會自動進入 Shadow DOM：
+
+```js
+document.querySelectorAll('button')
+```
+
+這段程式不會取得 Shadow DOM 裡的按鈕，因此外部程式比較不容易意外修改元件內部。
+
+## 實務上怎麼使用？
+
+Shadow DOM 通常搭配 Custom Elements，建立可重複使用的 Web Component：
+
+```js
+class ProductCard extends HTMLElement {
+  constructor() {
+    super()
+
+    const shadow = this.attachShadow({ mode: 'open' })
+
+    shadow.innerHTML = `
+      <style>
+        .card {
+          padding: 16px;
+          border: 1px solid #ddd;
+          border-radius: 12px;
+        }
+
+        button {
+          padding: 8px 16px;
+          color: white;
+          background: #2563eb;
+          border: 0;
+        }
+      </style>
+
+      <article class="card">
+        <slot></slot>
+        <button>加入購物車</button>
+      </article>
+    `
+  }
+}
+
+customElements.define('product-card', ProductCard)
+```
+
+接著就能像普通 HTML 一樣使用：
+
+```html
+<product-card>
+  <h2>無線耳機</h2>
+  <p>NT$1,290</p>
+</product-card>
+```
+
+`<slot>` 是元件預留的內容插槽。外部可以傳入商品資訊，但整體結構與按鈕樣式仍由元件管理。
+
+實務上，元件通常透過以下方式與外部溝通：
+
+- **Attributes**：傳入簡單設定
+- **Properties**：傳入物件或陣列
+- **Methods**：提供操作方法
+- **Custom Events**：通知外部發生的事件
+- **Slots**：接受外部提供的內容
+
+## 常見使用場景
+
+Shadow DOM 特別適合邊界清楚、需要獨立發布的 UI 元件，例如：
+
+- 客服聊天視窗
+- 播放器
+- 日期選擇器
+- 地圖或圖表工具
+- 瀏覽器擴充功能介面
+- 跨框架設計系統
+- 可嵌入不同網站的第三方元件
+
+瀏覽器本身也會使用類似機制封裝 `<video>`、日期輸入框等原生元件的內部控制介面。
+
+## 這項技術是什麼時候推出的？
+
+Shadow DOM 的第一份 W3C 公開草案發布於 2012 年。早期的 v0 曾由 Chrome 實作，後來重新設計為目前使用的 v1。
+
+主要發展時間如下：
+
+- **2012 年**：W3C 發布第一份公開草案
+- **2014 年**：Shadow DOM v0 在 Chrome 35 改為無前綴版本（帶前綴的實作從 Chrome 25 就已存在，v0 後來在 Chrome 80 移除）
+- **2016 年**：Shadow DOM v1 進入 Chrome 53 與 Safari 10
+- **2018 年**：Firefox 63 加入支援
+- **之後**：新版 Edge 隨 Chromium 支援 Shadow DOM
+
+目前使用的 `attachShadow()` 和 `<slot>` 等 API，主要來自 Shadow DOM v1。它已經是成熟的瀏覽器原生能力。
+
+## Shadow DOM 是目前的主流方案嗎？
+
+從瀏覽器支援來看，Shadow DOM 已可穩定用於正式產品；但在一般 React、Vue 專案中，CSS Modules、Scoped CSS 和 CSS-in-JS 仍較常見。
+
+根據 [HTTP Archive 2024 Web Almanac](https://almanac.httparchive.org/en/2024/javascript)，約有 2.5% 的行動版網頁使用 Shadow DOM，而桌面版網頁使用 Custom Elements 的比例約為 7.8%。這代表它的採用率持續成長，但主要集中在 Web Components、設計系統與第三方嵌入元件等場景。
+
+## Shadow DOM、CSS Modules 與 styled-components 的差異
+
+這幾種方案都能減少 CSS 衝突，但處理的問題層級不同。
+
+| 方案              | 運作方式                     | 隔離程度 | 適合情境                   |
+| ----------------- | ---------------------------- | :------: | -------------------------- |
+| Shadow DOM        | 瀏覽器建立 DOM 與 CSS 邊界   |    高    | 跨網站、跨框架元件         |
+| CSS Modules       | 建置時產生不重複的 class     |    中    | 一般框架專案               |
+| styled-components | 透過 JavaScript 產生元件樣式 |    中    | React、動態樣式與 Theme    |
+| Scoped CSS        | 編譯時改寫 CSS selector      |    中    | Vue、Svelte 等框架         |
+| iframe            | 建立獨立文件與執行環境       |   最高   | 完整第三方應用或不可信內容 |
+
+### CSS Modules
+
+CSS Modules 會將 class 轉換成近似唯一的名稱：
+
+```css
+/* Card.module.css */
+.title {
+  color: blue;
+}
+```
+
+```jsx
+import styles from './Card.module.css'
+
+export const Card = () => <h2 className={styles.title}>商品名稱</h2>
+```
+
+它適合解決 class 名稱衝突，但 DOM 仍屬於普通頁面，全域樣式和外部程式仍有機會影響元件。
+
+### styled-components
+
+styled-components 將 CSS 寫在 JavaScript 元件中：
+
+```jsx
+const Button = styled.button`
+  background: ${(props) => (props.$primary ? 'blue' : 'gray')};
+  color: white;
+`
+```
+
+它很適合根據 props 或 theme 動態改變樣式，但仍然使用普通 DOM，並且主要與 React 生態整合。
+
+### Shadow DOM
+
+Shadow DOM 由瀏覽器提供真正的封裝邊界：
+
+```js
+const shadow = element.attachShadow({ mode: 'open' })
+
+shadow.innerHTML = `
+  <style>
+    button {
+      background: blue;
+      color: white;
+    }
+  </style>
+
+  <button>確認</button>
+`
+```
+
+它不只避免 class 重名，也同時封裝 DOM 結構與 CSS。
+
+## 如何選擇？
+
+### 單一專案與單一框架
+
+當所有頁面都由同一團隊維護，CSS Modules、Scoped CSS 或框架既有的樣式方案通常最簡單。
+
+### 動態樣式與主題切換
+
+當元件樣式高度依賴 props、狀態或 theme，可以考慮 styled-components 等 CSS-in-JS 工具。
+
+### 跨網站與跨框架元件
+
+當元件要同時提供給 React、Vue、Angular 或原生 JavaScript，而且可能被放進無法控制 CSS 的網站，Shadow DOM 會是更可靠的選擇。
+
+例如第三方網站可能存在：
+
+```css
+button {
+  all: unset;
+}
+
+div {
+  display: flex;
+}
+```
+
+CSS Modules 可以避免 class 重名，卻無法提供完整的樣式邊界；Shadow DOM 更適合處理這種嵌入場景。
+
+### 完整應用與高強度隔離
+
+當內容來自第三方，或需要獨立的文件與 JavaScript 執行環境，iframe 會比 Shadow DOM 更合適。
+
+## Shadow DOM 的使用考量
+
+Shadow DOM 帶來較強的封裝，也會增加一些使用成本：
+
+- 外部客製內部樣式需要 CSS variables 或 `::part()`
+- 自動化測試需要處理 Shadow DOM 邊界
+- 元件必須設計清楚的屬性、事件與方法
+- 無障礙、焦點與鍵盤操作仍需要自行處理
+- 它是封裝機制，不是機密資料的安全邊界
+
+## 結語
+
+CSS Modules 和 styled-components 主要解決樣式組織與 class 衝突；Shadow DOM 則建立真正的 DOM 與 CSS 邊界；iframe 提供更完整的文件及執行環境隔離。
+
+簡單來說：
+
+1. 一般框架專案，優先考慮 CSS Modules 或 Scoped CSS。
+2. 高度動態的 React 樣式，可考慮 styled-components。
+3. 跨框架、跨網站或第三方嵌入元件，適合使用 Shadow DOM。
+4. 完整第三方應用或不可信內容，適合使用 iframe。
+
+Shadow DOM 的價值不在於取代所有 CSS 工具，而是在真正需要元件隔離時，提供一個由瀏覽器原生支援、穩定且清楚的封裝邊界。
+
+## 參考資料
+
+- [MDN：Using shadow DOM](https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_shadow_DOM)
+- [MDN：Element.attachShadow()](https://developer.mozilla.org/en-US/docs/Web/API/Element/attachShadow)
+- [HTTP Archive：2024 Web Almanac — JavaScript](https://almanac.httparchive.org/en/2024/javascript)
