@@ -1,19 +1,19 @@
 /** @type {import("pliny/config").PlinyConfig } */
 const siteMetadata = {
   title: 'Coding and Climbing',
-  author: 'YongChen',
-  headerTitle: "YongChen's Blog",
+  author: 'Harry',
+  headerTitle: "Harry's Blog",
   description: 'A blog recording my coding and climbing journey',
-  language: 'en-us',
+  language: 'zh-TW',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://tailwind-nextjs-starter-blog.vercel.app',
-  siteRepo: 'https://github.com/timlrx/tailwind-nextjs-starter-blog',
+  siteUrl: 'https://harry-su-blog.com',
+  siteRepo: 'https://github.com/YongChenSu/tailwind-nextjs-blog',
   siteLogo: `${process.env.BASE_PATH || ''}/static/images/logo.png`,
-  socialBanner: `${process.env.BASE_PATH || ''}/static/images/twitter-card.png`,
+  socialBanner: `${process.env.BASE_PATH || ''}/static/images/og-banner.png`,
   github: 'https://github.com/YongChenSu',
   linkedin: 'https://www.linkedin.com/in/harry-su-854898174/',
   instagram: 'https://www.instagram.com/dawning_climber',
-  locale: 'en-US',
+  locale: 'zh-TW',
   // set to true if you want a navbar fixed to the top
   stickyNav: false,
   analytics: {
