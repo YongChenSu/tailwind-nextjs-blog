@@ -1,6 +1,6 @@
-# Coding and Climbing — YongChen's Blog
+# Coding and Climbing — Harry's Blog
 
-我是 YongChen，一位前端工程師，擁有超過 5 年的開發經驗，專精 Next.js、React 與 TypeScript。
+我是 Harry，一位前端工程師，擁有超過 5 年的開發經驗，專精 Next.js、React 與 TypeScript。
 
 這裡是我的技術筆記與作品集：記錄工作上遇到的問題、學習新工具的過程，以及做過的專案。興趣是登山與抱石，期許程式能力也像山階或抱石級數一樣，一階一階往上攀升。
 
