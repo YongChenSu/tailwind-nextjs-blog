@@ -1,0 +1,129 @@
+---
+title: 'Facebook SDK 錯誤回報機制的演進：讓 Rollbar 只在登入介面出現時回報'
+date: '2026-11-05'
+tags: [facebook-sdk, rollbar, error-handling, observability]
+draft: false
+summary: '記錄 Facebook SDK unavailable 錯誤回報（ER0022）從 #1799、#1806 到 #1847 的三次調整：從觀測 SDK 載入失敗、只保留 timeout，到最後只在使用者實際看到登入介面時才開始監測，降低爬蟲與一般瀏覽造成的誤報。'
+authors: ['YongChen']
+---
+
+# Facebook SDK 錯誤回報機制的演進
+
+這篇記錄 Facebook SDK 錯誤回報機制經歷的三次調整，以及每次調整背後的考量：回報什麼、什麼時候回報，才能讓 Rollbar 上的數字真正反映使用者遇到的登入問題。
+
+## 1. 最初的問題與修正目標
+
+最初遇到的問題是：Facebook SDK 尚未 ready 或載入失敗時，登入元件可能拿不到 `FB`，導致 Facebook 登入失敗並產生 ER0001。
+
+當時的修正目標是：
+
+- SDK 尚未 ready 時，避免使用者直接執行 Facebook 登入。
+- SDK ready 後，登入功能可以恢復。
+- SDK 無法使用時，能透過 Rollbar 觀測問題。
+
+因此 [#1799](https://github.com/goodjoblife/GoodJobShare/pull/1799) 調整了登入按鈕狀態、加入 `script.onerror` 處理，並新增 ER0022。
+
+## 2. 為什麼加入 ER0022 timeout 回報
+
+SDK 載入不一定會明確失敗。有些情況可能沒有觸發 `onerror`，也一直沒有呼叫 `fbAsyncInit`，使初始化 Promise 長時間保持 pending。
+
+因此加入 10 秒 timeout，用來偵測：
+
+> SDK 在 10 秒內既沒有成功初始化，也沒有明確載入失敗
+
+超過 10 秒時便回報：
+
+```text
+[ER0022] FB SDK load timed out
+```
+
+這讓我們能觀測原本沒有錯誤事件、但 SDK 一直 unavailable 的情況。
+
+## 3. [#1806](https://github.com/goodjoblife/GoodJobShare/pull/1806) 修改了哪些回報條件
+
+加入 ER0022 後，Rollbar 出現大量 Facebook SDK 載入失敗回報。但第三方 script 被封鎖或明確載入失敗，不一定代表使用者真的遭遇登入問題。
+
+[#1806](https://github.com/goodjoblife/GoodJobShare/pull/1806) 因此收窄回報條件：
+
+- SDK 觸發 `script.onerror` 時，不再回報 ER0022。
+- `onerror` 會 reject Promise 並取消 timeout。
+- 只有 10 秒內既沒有 `fbAsyncInit`，也沒有 `onerror` 時，才回報 ER0022。
+
+因此 [#1806](https://github.com/goodjoblife/GoodJobShare/pull/1806) 後，ER0022 的實際語意是：
+
+> Facebook SDK 初始化 Promise pending 超過 10 秒
+
+而不是所有 SDK 載入失敗。
+
+## 4. 為什麼 [#1806](https://github.com/goodjoblife/GoodJobShare/pull/1806) 後仍出現大量可能的誤報
+
+問題在於 timeout 仍然設在全站共用的 `FacebookContextProvider`。
+
+因此使用者進入任何頁面時，都會：
+
+1. 載入 Facebook SDK。
+2. 啟動 10 秒 timer。
+3. 等待 `fbAsyncInit` 或 `onerror`。
+4. 兩者都沒有發生時回報 ER0022。
+
+這套監測機制不知道使用者是否有登入意圖。即使只是在瀏覽公司、經驗或文章頁面，只要 SDK 初始化 pending 超過 10 秒，也可能回報。
+
+Rollbar #206 還呈現短時間快速開啟大量不同頁面的模式，行為很像爬蟲或自動化流量。若這類環境能執行 GoodJob 前端程式，卻沒有完整完成 Facebook SDK 初始化，每個頁面都可能產生一筆 ER0022，進而放大回報數量。
+
+不過，現有資料只能證明 SDK 在 10 秒內沒有成功或明確失敗，不能單憑 ER0022 確認：
+
+- 一定是爬蟲；
+- SDK 是否已經下載完成；
+- 使用者是否真的準備登入；
+- pending 的具體原因。
+
+## 5. [#1847](https://github.com/goodjoblife/GoodJobShare/pull/1847) 如何調整回報時機
+
+[#1847](https://github.com/goodjoblife/GoodJobShare/pull/1847) 保留現有 SDK 載入與 Facebook 功能，只調整 ER0022 的回報時機：
+
+- 移除 `FacebookContextProvider` 的全站背景 timeout。
+- 一般 Login Modal 實際開啟時，才開始 10 秒監測。
+- 未登入使用者進入 `/inbox`、看到頁內登入畫面時，也開始監測。
+- SDK ready、Modal 關閉或元件卸載時取消 timer。
+- 回報加入 `trigger`、`route`、`visibilityState` 和 `webdriver`。
+
+ER0022 的語意因此從：
+
+> 背景載入的 Facebook SDK pending 超過 10 秒
+
+改為：
+
+> 使用者目前看到登入介面，但 Facebook SDK 已連續 10 秒 unavailable
+
+這解決了普通頁面與爬蟲掃描也可能產生登入錯誤回報的問題，同時保留真正可能影響登入時的可觀測性。
+
+## 6. 對一般瀏覽、登入與可觀測性的影響
+
+| 情況                               | [#1799](https://github.com/goodjoblife/GoodJobShare/pull/1799) | [#1806](https://github.com/goodjoblife/GoodJobShare/pull/1806) | [#1847](https://github.com/goodjoblife/GoodJobShare/pull/1847) |
+| ---------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------- |
+| 一般瀏覽頁面                       | SDK 失敗或 timeout 可能回報                                    | pending 超過 10 秒可能回報                                     | 不回報                                                         |
+| 明確觸發 `script.onerror`          | 回報                                                           | 不回報                                                         | 不回報                                                         |
+| 爬蟲大量掃描頁面                   | 可能大量回報                                                   | 仍可能大量回報 timeout                                         | 一般頁面不回報                                                 |
+| Login Modal 未開啟                 | 可能回報                                                       | 可能回報                                                       | 不回報                                                         |
+| Login Modal 開啟且 SDK unavailable | 回報                                                           | timeout 時回報                                                 | 10 秒後回報 `login-modal`                                      |
+| 未登入使用者進入 `/inbox`          | 回報                                                           | timeout 時回報                                                 | 10 秒後回報 `inline-login`                                     |
+| SDK 10 秒內 ready                  | 不回報                                                         | 不回報                                                         | 不回報                                                         |
+| 實際 Facebook 登入 API 失敗        | 既有登入錯誤碼                                                 | 維持不變                                                       | ER0002～ER0016，維持不變                                       |
+
+整體演進可濃縮為：
+
+```text
+#1799
+處理並觀測 Facebook SDK unavailable
+    ↓
+#1806
+停止回報明確的 script 載入失敗，只保留 timeout
+    ↓
+遺留問題
+timeout 仍在所有頁面啟動，與登入意圖無關
+    ↓
+#1847
+只在登入介面實際顯示時回報 SDK unavailable
+```
+
+[#1847](https://github.com/goodjoblife/GoodJobShare/pull/1847) 修正的是 Rollbar 回報的時機與語意；Facebook SDK 仍維持全站載入，並未改成按需載入。
