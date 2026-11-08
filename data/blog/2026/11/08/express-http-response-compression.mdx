@@ -1,44 +1,34 @@
 ---
-title: '用 Brotli／Gzip HTTP Response Compression 把 Lighthouse Payload 減半'
+title: 'Express 要不要加 Compression？從 localhost Lighthouse 到 Cloudflare 架構評估'
 date: '2026-11-08T14:00:00'
-tags: [web-performance, compression, brotli, gzip, express, lighthouse]
+tags: [web-performance, compression, brotli, gzip, express, lighthouse, cloudflare]
 draft: false
-summary: '記錄一次 Express SSR 網站的 HTTP 傳輸壓縮優化：啟用 Brotli／Gzip、驗證 Content-Encoding，將 Lighthouse 總傳輸量從 3,077 KiB 降到 1,572 KiB，並釐清為什麼 TBT 反而從 0 上升到 450 ms。'
+summary: '記錄一次 Express HTTP response compression 實驗：本機 Lighthouse payload 雖減少 49%，但正式環境已有 Cloudflare 提供 Brotli；在缺少 origin latency、cache hit 與 CPU 數據前，最終決定不在應用層啟用即時壓縮。'
 authors: ['YongChen']
 ---
 
-# 用 Brotli／Gzip HTTP Response Compression 把 Lighthouse Payload 減半
+# Express 要不要加 Compression？從 localhost Lighthouse 到 Cloudflare 架構評估
 
-完成首頁 CLS 與 LCP 圖片優化後，Lighthouse Performance 已從最初的 `46` 提升到 `75`，但報告仍顯示整頁需要傳輸約 `3,077 KiB`。其中，主 JavaScript、圖表 chunk 與 render-blocking CSS 都以接近解壓後的原始大小傳送。
+完成首頁 CLS 與 WebP／LCP 優化後，我在本機 production build 嘗試替 Express 加上 HTTP response compression。Lighthouse 的總傳輸量從 `3,077 KiB` 降到 `1,572 KiB`，Performance 從 `75` 上升到 `86`，看起來是很直接的改善。
 
-這次優化沒有刪除任何功能，也沒有改變 JavaScript bundle 的內容。我只在 Express server 啟用 HTTP response compression，讓瀏覽器透過 Brotli 或 Gzip 接收文字資源。修改後，Lighthouse 的總傳輸量降到 `1,572 KiB`，約減少 49%，Performance 從 `75` 提升到 `86`，LCP 則從 `3.9 s` 降到 `1.9 s`。
+但進一步檢查正式環境後，結論改變了：使用者收到的 HTML、CSS 與 JavaScript 原本就已由 Cloudflare 以 Brotli 傳輸。把 compression middleware 加進 Express，主要影響的是 origin 到 Cloudflare 的傳輸與未命中快取的 request，卻會增加 Node.js 即時壓縮的 CPU 成本。
 
-不過，報告裡也出現一個乍看矛盾的結果：Total Blocking Time（TBT）從 `0 ms` 上升到 `450 ms`。這不是解壓縮拖慢主執行緒，而是 JavaScript 更早下載完成後，原本發生在量測區間之外的 long tasks 被 Lighthouse 算進來了。
+因此這次的最後決定是：**保留實驗與驗證紀錄，但從 PR 移除 Express compression。** 在缺少 origin response time、Cloudflare cache hit ratio 與 pod CPU 等資料前，不能只根據 localhost Lighthouse 分數決定 production 架構。
 
-這篇記錄 HTTP response compression 的原理、Express 實作、驗證方式，以及如何解讀這次 Lighthouse 數字。
+## 這種優化叫什麼？
 
-## 這種優化應該叫什麼？
+最精確的名稱是 **HTTP response compression（HTTP 回應壓縮）**，也可以稱為 Brotli／Gzip 傳輸壓縮或 network payload optimization。
 
-最精確的名稱是：
+它和以下幾種優化不同：
 
-> **HTTP response compression（HTTP 回應壓縮）**
-
-也可以稱為：
-
-- Brotli／Gzip 傳輸壓縮
-- 網路傳輸量優化
-- Network payload optimization
-
-它和下面幾種優化不同：
-
-- **Minification**：移除 JavaScript 或 CSS 中不必要的空白與註解，並將可安全改名的識別字縮短（mangle）。
+- **Minification**：移除不必要的空白與註解，並將可安全改名的識別字縮短（mangle）。
 - **Tree shaking**：從 bundle 移除未使用的 export。
 - **圖片壓縮**：改變 PNG、JPEG、WebP 或 AVIF 的編碼方式。
-- **HTTP response compression**：不改變資源解壓後的內容，只壓縮網路上傳送的 bytes。
+- **HTTP response compression**：不改變解壓後內容，只減少網路上傳送的 bytes。
 
-例如瀏覽器最後仍會執行同一份約 1.27 MB 的 JavaScript，但網路上實際傳輸的資料可以只有約 344 KB。
+例如瀏覽器最後仍會執行同一份 JavaScript，但網路上實際傳輸的資料可以小很多。這能改善下載時間，卻不會降低 JavaScript parse、compile、evaluation 或 React hydration 的成本。
 
-## 修改前：靜態資源沒有 Content-Encoding
+## 本機實驗怎麼做？
 
 原本的 Express server 直接提供靜態檔案：
 
@@ -48,28 +38,7 @@ const server = Express()
 server.disable('x-powered-by').use(Express.static(process.env.RAZZLE_PUBLIC_DIR, { maxAge: '14d' }))
 ```
 
-Lighthouse trace 中幾個主要資源的 transfer size 幾乎等於 resource size：
-
-| 資源              |   Transfer size |      解壓後大小 |
-| ----------------- | --------------: | --------------: |
-| HTML              |    39,989 bytes |    39,779 bytes |
-| CSS bundle        |   201,380 bytes |   201,077 bytes |
-| JavaScript bundle | 1,275,144 bytes | 1,274,825 bytes |
-| 圖表 chunk        |   518,083 bytes |   517,766 bytes |
-
-HTTP response header 也沒有 `Content-Encoding`。這代表 server 雖然回傳 production build，卻仍把文字檔案以接近原始大小送到瀏覽器。
-
-JavaScript 與 CSS 具有大量重複的語法、屬性名稱和字串，很適合再用通用壓縮演算法處理。即使 Webpack 已經 minify，Brotli／Gzip 仍能找到許多可壓縮的重複資料。
-
-## 在 Express 啟用 compression middleware
-
-專案使用 `compression` package：
-
-```bash
-yarn add compression
-```
-
-接著將 middleware 放在 `Express.static` 前面：
+實驗版本安裝 `compression`，並把 middleware 放在 `Express.static` 和 SSR route 前面：
 
 ```js
 import compression from 'compression'
@@ -83,52 +52,43 @@ server
   .use(Express.static(process.env.RAZZLE_PUBLIC_DIR, { maxAge: '14d' }))
 ```
 
-順序很重要。Express middleware 會依註冊順序執行；如果 `Express.static` 已經完成 response，放在後面的 compression middleware 就沒有機會處理該資源。
-
-正確順序是：
-
-```text
-request
-  ↓
-compression middleware
-  ↓
-Express.static 或 SSR route
-  ↓
-壓縮 response body
-  ↓
-browser
-```
-
-這樣不只 CSS 與 JavaScript，SSR 產生的 HTML 也能被壓縮。
-
-## 瀏覽器如何選擇 Brotli 或 Gzip？
-
-瀏覽器會在 request 帶上它支援的編碼：
+瀏覽器會在 request 帶上支援的編碼：
 
 ```http
 Accept-Encoding: gzip, deflate, br
 ```
 
-Server 選擇其中一種後，在 response 告訴瀏覽器：
+Server 選擇 Brotli 時，response 會包含：
 
 ```http
 Content-Encoding: br
 Vary: Accept-Encoding
 ```
 
-如果 client 不支援 Brotli，server 可以回傳：
+`Vary: Accept-Encoding` 告訴 cache：同一個 URL 可能有不同編碼版本，不能把 Brotli response 交給不支援 Brotli 的 client。
+
+## 如何正確驗證？
+
+### 用 Chrome DevTools Network
+
+1. 開啟 Network 面板並勾選 `Disable cache`。
+2. 重新整理頁面。
+3. 分別選擇首頁 Document、CSS bundle 和 JavaScript bundle。
+4. 在 `Headers` → `Response Headers` 檢查 `Content-Encoding` 和 `Vary`。
+
+本機實驗中的 CSS response 顯示：
 
 ```http
-Content-Encoding: gzip
+Content-Encoding: br
 ```
 
-瀏覽器會自動解壓，React、Webpack runtime 和應用程式都不需要知道傳輸過程使用哪種 encoding。
+![Chrome DevTools Network 顯示本機 CSS bundle 使用 Brotli Content-Encoding](/static/images/2026/11/08/http-response-compression-content-encoding-br.png)
 
-`Vary: Accept-Encoding` 也很重要。它告訴 CDN、reverse proxy 與 browser cache：同一個 URL 可能依 request header 產生不同版本，不能把 Brotli response 錯誤地交給不支援 Brotli 的 client。
+這張圖只證明該 CSS response 使用 Brotli，不能單獨證明所有資源都有壓縮，也不能證明 production 必須由 Express 壓縮。
 
-## 用 curl 驗證，不要只看 Lighthouse 分數
+### 用 curl 驗證
 
-啟動 production server 後，先從 build manifest 取得帶有 content hash 的實際 CSS 路徑：
+Production build 的檔名包含 content hash，不能直接假設路徑是 `/static/css/bundle.css`。先從 build manifest 取得實際路徑：
 
 ```bash
 CSS_PATH=$(node -p "require('./build/assets.json').client.css")
@@ -138,15 +98,7 @@ curl -sS -D - -o /dev/null \
   "http://localhost:3000${CSS_PATH}"
 ```
 
-不能把檔名簡寫成 `/static/css/bundle.css`。Production build 的實際檔名會包含 hash，例如：
-
-```text
-/static/css/bundle.aaecfd1b.css
-```
-
-這個專案的 `Express.static` 找不到檔案時，request 會繼續落到 `server.get('/*')`，最後由 SSR 回傳 HTML。錯誤路徑仍可能看到 `Content-Encoding: br`，但那只證明 HTML 被壓縮，沒有證明 CSS 被壓縮。
-
-預期 response headers 包含：
+預期同時看到正確的 status、content type 與 encoding：
 
 ```http
 HTTP/1.1 200 OK
@@ -155,9 +107,9 @@ Vary: Accept-Encoding
 Content-Encoding: br
 ```
 
-驗證時要同時確認 `Content-Type: text/css`。如果看到 `Content-Type: text/html`，代表 request 很可能落到了 SSR fallback，測到的不是 CSS。
+如果路徑不存在，`Express.static` 可能把 request 交給 SSR fallback。這時即使看到 `Content-Encoding: br`，只要 `Content-Type` 是 `text/html`，驗證到的仍是 HTML，不是 CSS。
 
-再測試 Gzip：
+再用 GET request 測試 Gzip：
 
 ```bash
 curl -sS -D - -o /dev/null \
@@ -165,46 +117,23 @@ curl -sS -D - -o /dev/null \
   http://localhost:3000/
 ```
 
-預期看到：
+不要改用 `curl -I`。`-I` 送出的是 `HEAD` request，而 `compression@1.8.2` 會跳過 HEAD；沒有 `Content-Encoding` 不代表壓縮設定失敗。`-D - -o /dev/null` 仍送出 GET，只是不把 body 顯示在 terminal。
 
-```http
-Content-Encoding: gzip
-```
+## localhost Lighthouse 觀察到了什麼？
 
-這兩個檢查能直接證明 server 已進行 content negotiation，而且 HTML 與靜態資源都經過 compression middleware。若只看 Lighthouse 分數，可能會把網路波動或 CPU 排程誤認為設定成功或失敗。
+兩次測試都使用本機 production build 與 Lighthouse Mobile simulated throttling：
 
-> 不要改用 `curl -I`。`-I` 送出的是 `HEAD` request，而 `compression@1.8.2` 會直接跳過 HEAD，不產生壓縮 body，因此 response 沒有 `Content-Encoding` 並不代表設定失敗。本文使用的 `-D - -o /dev/null` 仍然送出 `GET`，只是不把 body 顯示在 terminal。
+| 指標                     | WebP／preload 後 | Express compression 實驗 |    變化 |
+| ------------------------ | ---------------: | -----------------------: | ------: |
+| Performance              |               75 |                       86 |     +11 |
+| First Contentful Paint   |            3.9 s |                    1.9 s |  -2.0 s |
+| Largest Contentful Paint |            3.9 s |                    1.9 s |  -2.0 s |
+| Speed Index              |            5.7 s |                    3.2 s |  -2.5 s |
+| Total Blocking Time      |             0 ms |                   450 ms | +450 ms |
+| Cumulative Layout Shift  |                0 |                        0 |    不變 |
+| Total payload            |        3,077 KiB |                1,572 KiB | 約 -49% |
 
-## 用 Chrome DevTools Network 驗證
-
-不使用 `curl`，也可以直接在 Chrome DevTools 的 Network 面板確認：
-
-1. 開啟 Network 面板並勾選 `Disable cache`。
-2. 重新整理頁面。
-3. 分別選擇首頁 Document、CSS bundle 和 JavaScript bundle。
-4. 在 `Headers` → `Response Headers` 尋找 `Content-Encoding`。
-
-以下截圖中，CSS bundle 的 response header 是：
-
-```http
-Content-Encoding: br
-```
-
-![Chrome DevTools Network 顯示 CSS bundle 使用 Brotli Content-Encoding](/static/images/2026/11/08/http-response-compression-content-encoding-br.png)
-
-`br` 代表這個 CSS response 已經使用 Brotli 傳輸，瀏覽器收到後會自動解壓。若顯示 `gzip`，則代表 Gzip 壓縮也有生效。
-
-這張截圖只能證明 CSS bundle 已壓縮。完整驗證還要用相同方式檢查：
-
-- 首頁 Document，也就是 SSR HTML
-- 主 JavaScript bundle
-- Response Headers 中是否同時存在 `Vary: Accept-Encoding`
-
-圖片不一定會出現 `Content-Encoding`。PNG、JPEG、WebP 和 AVIF 本身已經是壓縮格式，通用 HTTP compression 通常不會再帶來明顯收益。
-
-## 實際傳輸量降低多少？
-
-啟用 compression 後，同一批資源的 transfer size 變成：
+主要文字資源的 transfer size 也明顯下降：
 
 | 資源              |          壓縮前 |        壓縮後 | 約減少 |
 | ----------------- | --------------: | ------------: | -----: |
@@ -213,162 +142,66 @@ Content-Encoding: br
 | JavaScript bundle | 1,275,144 bytes | 344,378 bytes |    73% |
 | 圖表 chunk        |   518,083 bytes | 130,053 bytes |    75% |
 
-Lighthouse 的整頁總傳輸量則是：
+這證明 middleware 在本機確實減少了 Express 到瀏覽器的傳輸量。然而 localhost 的連線拓撲是：
 
 ```text
-壓縮前：3,077 KiB
-壓縮後：1,572 KiB
-減少：約 49%
+browser → Express
 ```
 
-整頁沒有降低 70% 以上，是因為圖片、字型與第三方資源本來就可能使用各自的壓縮格式或由外部 server 提供，並非所有 request 都會被這個 Express middleware 重新壓縮。
+正式環境則是：
 
-## Lighthouse 前後比較
+```text
+browser → Cloudflare → Express origin
+```
 
-兩次測試都使用 Lighthouse Mobile simulated throttling：
-
-| 指標                     | WebP／preload 後 | 再加 HTTP compression |    變化 |
-| ------------------------ | ---------------: | --------------------: | ------: |
-| Performance              |               75 |                    86 |     +11 |
-| First Contentful Paint   |            3.9 s |                 1.9 s |  -2.0 s |
-| Largest Contentful Paint |            3.9 s |                 1.9 s |  -2.0 s |
-| Speed Index              |            5.7 s |                 3.2 s |  -2.5 s |
-| Total Blocking Time      |             0 ms |                450 ms | +450 ms |
-| Cumulative Layout Shift  |                0 |                     0 |    不變 |
-| Time to Interactive      |            3.9 s |                10.1 s |  +6.2 s |
-| Total payload            |        3,077 KiB |             1,572 KiB | 約 -49% |
-
-CSS 是 render-blocking resource。壓縮前，約 201 KB 的 CSS 在 throttled network 花了約 3.1 秒才下載完成；壓縮後只需傳輸約 33 KB。瀏覽器更早取得 CSS，因此 FCP、LCP 和 Speed Index 都明顯改善。
+兩者不是同一個測試條件，因此本機減少 49% 不能直接當成正式環境使用者也會獲得同等改善。
 
 ## 為什麼 TBT 從 0 變成 450 ms？
 
-第一個直覺可能是：「Brotli 解壓縮是不是讓主執行緒變慢了？」但 trace 顯示不是。
-
-TBT 不是整段頁面生命週期的 JavaScript 執行時間。它只計算 FCP 到 TTI 之間，每個 main-thread task 超過 50 ms 的部分：
+這不是 Brotli 解壓縮讓主執行緒多做了 450 ms。TBT 只計算 FCP 到 TTI 之間，每個 main-thread task 超過 50 ms 的部分：
 
 ```text
 blocking time = max(task duration - 50 ms, 0)
 ```
 
-壓縮後報告中，被計入 TBT 的主要 long tasks 是：
+壓縮前，主 bundle 與圖表 chunk 下載較慢，相關 long tasks 落在 Lighthouse 的 TBT 計算區間之外。壓縮後，JavaScript 更早下載完成並開始執行，原本被慢速下載藏在後面的 CPU 成本因此進入計算區間。
 
-| Long task            | Duration | TBT contribution |
-| -------------------- | -------: | ---------------: |
-| 主 JavaScript bundle |   269 ms |           219 ms |
-| 圖表 chunk           |   222 ms |           172 ms |
-| Google Analytics     |    84 ms |            34 ms |
-| Google Analytics     |    75 ms |            25 ms |
-| 合計                 |          |        約 450 ms |
+本次報告中總 main-thread work 反而從 `2.2 s` 降到 `1.7 s`，所以不能把 TBT 上升直接解讀成 Brotli 解壓縮造成的 regression。不過單次 Lighthouse 數字仍會受 CPU 排程、背景程式和第三方 script 影響，應重複測試並取中位數。
 
-計算方式是：
+## 為什麼最後移除 Express compression？
 
-```text
-(269 - 50) + (222 - 50) + (84 - 50) + (75 - 50)
-≈ 450 ms
+正式站的 DevTools 與 response header 已顯示，使用者收到的 HTML、CSS 與 JavaScript 原本就有：
+
+```http
+Content-Encoding: br
 ```
 
-真正改變的是 JavaScript 完成下載與開始執行的時間：
+也就是 Cloudflare 已負責 browser-facing compression。此時再把 middleware 放進 Express，可能只在 Cloudflare 回源或 cache miss 時減少 origin 傳輸量，對一般使用者不一定帶來本機 Lighthouse 所顯示的改善。
 
-| 資源                 | 壓縮前完成下載 | 壓縮後完成下載 |
-| -------------------- | -------------: | -------------: |
-| 主 JavaScript bundle |        11.95 s |         6.08 s |
-| 圖表 chunk           |        17.94 s |         9.49 s |
+PR review 的外部測量指出，SSR HTML 未壓縮約 `31–50 KB`、Brotli 後約 `7–12 KB`，每次未快取頁面約節省 `25–40 KB` 的 origin 傳輸。這個節省是否值得 Node.js 的即時壓縮 CPU 成本，必須配合實際流量與監控資料評估，不能只看檔案縮小比例。
 
-壓縮前，FCP 與 Lighthouse 推算的 TTI 都是約 `3.9 s`。主 bundle 和圖表 chunk 到 12 秒、18 秒才執行，已經落在 TBT 計算區間之外，因此 TBT 顯示為 `0 ms`。
+Express 官方文件也建議在 production 由 reverse proxy 層處理 compression。對 CSS、JavaScript 這類不隨 request 改變的資源，還可以在 build 或 CDN 階段預先壓縮，避免每次 request 都消耗應用程式 CPU。
 
-壓縮後，FCP 提前到 `1.9 s`，JavaScript 也在 6 到 10 秒之間執行，long tasks 因而進入 FCP 到 TTI 的計算區間。TBT 變高比較像是：
+因此要重新評估應用層壓縮，至少需要：
 
-> 原本被慢速下載藏在量測區間後面的 CPU 成本，現在因為下載變快而被看見。
+- Cloudflare cache hit ratio 與回源 request 數量
+- origin response time／TTFB
+- Node.js pod CPU 使用率與尖峰負載
+- 壓縮前後的 origin egress 差異
+- CDN 是否已能完成 Brotli／Gzip negotiation 與 cache
 
-更重要的是，報告中的總 main-thread work 並沒有增加：
+在這些資料齊全前，移除 middleware 是較符合目前架構的選擇。
 
-```text
-壓縮前：2.2 s
-壓縮後：1.7 s
-```
+## Brotli quality 4 與 11 的取捨
 
-所以不能把 TBT 上升直接解讀成 compression 造成 CPU regression。它反而揭露了下一個值得處理的瓶頸：主 bundle、圖表與第三方 JavaScript 的執行成本。
+`compression@1.8.2` 的即時 Brotli 預設 quality 是 `4`，不是最高的 `11`。這是 response time、CPU 成本與檔案大小之間的折衷；即時壓縮直接使用 quality 11，可能以較高的 server CPU 與延遲換取更小的 response。
 
-## Compression 解決的是傳輸量，不是 JavaScript 執行成本
+預先壓縮的靜態檔案不佔用每次 request 的 CPU budget，因此可以考慮 quality 11，再由 CDN 根據 `Accept-Encoding` 回傳相對應的版本。動態 SSR HTML 是否需要在 origin 即時壓縮，則應由上述 production 指標決定。
 
-HTTP response compression 可以改善：
+## 結論
 
-- HTML、CSS、JavaScript 的下載時間
-- render-blocking CSS 的完成時間
-- 首屏資源抵達瀏覽器的時間
-- 行動網路上的總傳輸量
-
-但它不會降低：
-
-- JavaScript 解壓後的 bundle size
-- parse、compile 和 evaluation 成本
-- React hydration 的工作量
-- 圖表 library 的執行成本
-- 第三方 script 的 long tasks
-
-因此這次只能確認傳輸成本已經降低。JavaScript 執行成本是否需要進一步處理，仍要另外建立基準並完成驗證，不能從這次 compression 實驗直接下結論。
-
-## Production 環境還要確認什麼？
-
-本機 Express 生效，不代表 production response 一定保持相同。正式環境前方可能還有 Nginx、load balancer、CDN 或 hosting platform，因此部署後要先從 DevTools Network 複製 CSS 的實際 Request URL，再執行：
-
-```bash
-CSS_URL='https://example.com/static/css/bundle.實際-hash.css'
-
-curl -sS -D - -o /dev/null \
-  -H 'Accept-Encoding: br' \
-  "$CSS_URL"
-```
-
-上面的網域與檔名只是格式示意，必須替換為該次部署真正產生的 URL。除了 `Content-Encoding`，也要確認 status 是 `200`、`Content-Type` 是 `text/css`，避免再次測到 fallback HTML。
-
-重點檢查：
-
-- 是否有 `Content-Encoding: br` 或 `gzip`
-- 是否有 `Vary: Accept-Encoding`
-- CDN 是否正確 cache 不同 encoding 的版本
-- HTML、CSS、JavaScript 是否都生效
-- 已壓縮格式是否被不必要地重複處理
-- production TTFB 是否因即時壓縮而明顯增加
-
-`compression@1.8.2` 的即時 Brotli 預設 quality 是 `4`，不是最高的 `11`。Quality 4 是 response time、CPU 成本與檔案大小之間的折衷；直接把即時壓縮調到 quality 11，可能用較高的 server CPU 與延遲換取較小的 response。
-
-對不會隨 request 改變的 CSS 與 JavaScript，可以在 build 或 CDN 階段預先產生 Brotli/Gzip 版本。預壓縮不佔用每次 request 的 CPU budget，因此可以考慮使用 Brotli quality 11 追求較小檔案，再由 CDN 根據 `Accept-Encoding` 回傳對應版本。動態 SSR HTML 則通常仍需要即時壓縮或由適當的 cache layer 處理。
-
-實際要選即時壓縮、預壓縮或 CDN 壓縮，屬於部署架構選擇，不能只靠本機 Lighthouse 決定。
-
-## 如何公平比較 Lighthouse 結果
-
-這次四個階段的單次報告是：
-
-| 階段                | Performance |   FCP |   LCP | Speed Index |    TBT |   CLS |   Payload |
-| ------------------- | ----------: | ----: | ----: | ----------: | -----: | ----: | --------: |
-| 未優化              |          46 | 4.4 s | 5.9 s |       7.1 s | 210 ms | 0.266 | 3,100 KiB |
-| CLS 優化後          |          63 | 4.4 s | 5.9 s |       7.0 s |   0 ms |     0 | 3,109 KiB |
-| WebP／preload 後    |          75 | 3.9 s | 3.9 s |       5.7 s |   0 ms |     0 | 3,077 KiB |
-| HTTP compression 後 |          86 | 1.9 s | 1.9 s |       3.2 s | 450 ms |     0 | 1,572 KiB |
-
-Lighthouse 會受本機 CPU、背景程式、網路排程與第三方服務影響。這張表適合用來說明每一步觀察到的方向，但更穩健的驗證方式是：
-
-- 固定 Mobile／Desktop 模式與 throttling 設定
-- 使用 production build
-- 每個版本至少執行三次並取中位數
-- 除了總分，也比較 request timing、transfer size 和 response headers
-- 部署後持續觀察 CrUX field data
-
-對 HTTP compression 而言，最直接的成功證據不是 Performance 從 75 變成 86，而是：
-
-```text
-Content-Encoding 正確
-Transfer size 明顯降低
-解壓後內容與功能不變
-```
-
-## 結語
-
-- 這次做的是 HTTP response compression，也可稱為 Brotli／Gzip 傳輸壓縮。
-- Compression middleware 必須放在 `Express.static` 與 SSR route 前面。
-- HTML、CSS、JavaScript 的解壓後內容不變，但網路傳輸量大幅降低。
-- Lighthouse 總 payload 從 3,077 KiB 降到 1,572 KiB，約減少 49%。
-- FCP 與 LCP 從 3.9 秒改善到 1.9 秒。
-- TBT 上升是 long tasks 提前進入計算區間，不代表解壓縮造成 CPU regression。
+- HTTP response compression 確實能減少 HTML、CSS 與 JavaScript 的傳輸 bytes。
+- 本機實驗的 payload 從 `3,077 KiB` 降到 `1,572 KiB`，只能證明 middleware 生效，不能直接代表 production 使用者收益。
+- Production 已由 Cloudflare 對瀏覽器提供 Brotli；Express compression 的主要潛在收益改成 origin 到 Cloudflare 的傳輸。
+- 即時壓縮有 Node.js CPU 成本，必須與 cache、origin latency、egress 和 pod CPU 一起衡量。
+- 因此這次從 PR 移除 Express compression，保留已驗證的 CLS 與 WebP／LCP 優化。

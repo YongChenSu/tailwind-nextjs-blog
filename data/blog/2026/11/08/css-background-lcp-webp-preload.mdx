@@ -54,12 +54,40 @@ PNG   55,913 bytes
 WebP  26,676 bytes
 ```
 
-WebP 減少了約 52% 的檔案大小。CSS 改為引用新素材：
+WebP 減少了約 52% 的檔案大小。為了讓 preload 與實際圖片共用同一個 asset URL，而且不使用 inline style，Banner 改成專案既有的圖片元件模式：在 JavaScript import 一次，再渲染為絕對定位的裝飾性 `<img>`。
+
+```jsx
+import heroImage from 'images/about-people-colored.webp'
+
+const Banner = () => (
+  <section className={styles.banner}>
+    <img
+      src={heroImage}
+      className={styles.heroImage}
+      width="521"
+      height="207"
+      alt=""
+      aria-hidden="true"
+    />
+  </section>
+)
+```
+
+圖片只是裝飾，不提供額外內容，因此使用空 `alt` 並加上 `aria-hidden`。CSS 負責右下角定位、尺寸與手機版置中：
 
 ```css
 .banner {
-  background: #fffae1 url('../images/about-people-colored.webp') no-repeat right bottom;
-  background-size: 347px;
+  background-color: #fffae1;
+  position: relative;
+  overflow: hidden;
+}
+
+.heroImage {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 347px;
+  height: auto;
 }
 ```
 
@@ -70,7 +98,7 @@ WebP 減少了約 52% 的檔案大小。CSS 改為引用新素材：
 - 壓縮後沒有明顯色塊、邊緣模糊或文字失真
 - 專案支援的瀏覽器可以顯示 WebP
 
-這次沒有刪除原本的 PNG，因為其他元件仍然引用它。只有首頁 Banner 切換成 WebP，避免意外影響其他畫面。
+原本還有問卷完成畫面引用同一張 PNG。確認 WebP 顯示結果與瀏覽器支援範圍後，將該元件也改為引用同一個 WebP，並刪除舊 PNG，避免 build 同時保留兩份相同內容的圖片資產。
 
 ## 第二步：在 SSR HTML 中 preload 背景圖
 
@@ -86,6 +114,8 @@ const Banner = () => (
     <Helmet>
       <link rel="preload" as="image" href={heroImage} fetchpriority="high" />
     </Helmet>
+
+    <img src={heroImage} className={styles.heroImage} alt="" aria-hidden="true" />
 
     {/* Banner content */}
   </section>
@@ -107,7 +137,7 @@ const Banner = () => (
 
 瀏覽器解析 HTML 時就能開始下載圖片，不必等 CSS 完成下載與解析。
 
-## preload URL 必須和 CSS URL 完全相同
+## preload URL 必須和實際圖片 URL 完全相同
 
 preload 最容易踩到的問題，是 preload 和真正使用的 resource URL 不一致。
 
@@ -122,10 +152,12 @@ preload 最容易踩到的問題，是 preload 和真正使用的 resource URL �
 
 ```text
 preload 下載一次
-CSS background 再下載一次
+頁面中的圖片再下載一次
 ```
 
-這次 JavaScript import 和 CSS `url()` 都指向同一個 source file，交給 Webpack 產生相同的 hashed asset URL。實際驗證時，Network 也只出現一筆 request，確認 preload 有被 CSS background 重用。
+這次由 JavaScript import 一次圖片，`Helmet` preload 的 `href` 和 `<img>` 的 `src` 都直接使用 `heroImage`。兩者一定會取得相同的 Webpack hashed asset URL，也不必在 JavaScript 與 CSS 各維護一次路徑。
+
+`<img>` 會直接存在於 SSR body，瀏覽器不必等 CSS 解析後才發現 URL；放在 `<head>` 的 preload 仍然能更早宣告這是高優先度的 LCP resource。實際驗證時，Network 只出現一筆圖片 request，確認 preload 有被 `<img>` 重用。
 
 preload 是高優先度提示，不應對大量非關鍵圖片使用。預載過多資源會和 CSS、字型、JavaScript 或真正的 LCP resource 競爭頻寬，反而可能讓整體效能變差。它適合已確認為首屏 LCP 的少數關鍵資源。
 
