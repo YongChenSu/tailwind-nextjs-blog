@@ -3,23 +3,21 @@ title: '把 Lighthouse CLS 降到 0：從被推動的元素追到真正原因'
 date: '2026-11-08T12:00:00'
 tags: [web-vitals, cls, react, ssr, lighthouse]
 draft: false
-summary: '記錄一次 React SSR 首頁的 CLS 優化：如何從 Lighthouse 標記的位移元素往上追查、讓首屏資料在 SSR 階段完成、替非同步圖表預留空間，並正確區分 lab 與 field data。'
+summary: '記錄一次 React SSR 首頁的 CLS 優化：從 Lighthouse 標記的位移元素往上追查原因，讓首屏資料在 SSR 階段完成，並替非同步載入的圖表預留空間。'
 authors: ['YongChen']
 ---
 
 # 把 Lighthouse CLS 降到 0：從被推動的元素追到真正原因
 
-這次優化的起點，是 production PageSpeed 報告中的 Cumulative Layout Shift（CLS）問題。修改後，在本機 production build 的 Lighthouse 測試中，lab CLS 降到了 `0`。
+這次優化的起點，是 production PageSpeed 報告中首頁的 Cumulative Layout Shift（CLS）問題。修改後，在本機 production build 的 Lighthouse 測試中，lab CLS 降到了 `0`。
 
-不過這裡要先說清楚：Lighthouse 的 `0` 是一次受控環境下的 lab data，不等於真實使用者的 CrUX field data 已經同步歸零。CrUX 顯示的是最近 28 天的滾動資料，上線後仍需要持續觀察，而且 Mobile 與 Desktop 也必須分開比較。
-
-這次真正有價值的不是分數本身，而是追查過程中的幾個發現：Lighthouse 標記的元素不一定是原因、SSR 不代表所有子元件都有 server render，以及圖片的 `width`、`height` 必須搭配正確 CSS 才能安全地預留空間。
+改善 CLS 的核心只有一件事：**讓瀏覽器在第一次排版時，就知道每個區塊最終需要多少空間。** 以下是這次追查與修正的過程。
 
 ## Lighthouse 標記的是受害者，不一定是原因
 
-PageSpeed 報告將位移歸在「最新面試、評價」區塊。第一眼很容易以為，要從這個區塊本身的 CSS 或內容開始找問題。
+PageSpeed 報告將位移歸在「最新面試、評價」區塊。第一眼很容易以為問題出在這個區塊本身，但它的資料其實早就由 SSR 輸出了。
 
-但實際流程是：
+實際流程是：
 
 ```text
 上方的薪資摘要區塊在 client 端載入
@@ -31,11 +29,11 @@ PageSpeed 報告將位移歸在「最新面試、評價」區塊。第一眼很�
 Lighthouse 將它記錄為發生位移的元素
 ```
 
-Layout Shift attribution 告訴我們「誰移動了」，不一定直接告訴我們「誰造成它移動」。追查 CLS 時，除了檢查被標記的 DOM，也要往它上方的兄弟元素、父層容器和稍早載入的內容尋找原因。
+Layout shift 的 attribution 告訴我們「誰移動了」，而不是「誰造成它移動」。追查 CLS 時，看到被標記的元素後，要往它上方的兄弟元素、父層容器，以及稍早載入的內容尋找原因。
 
 ## 修改前：首屏資料要等 useEffect 才開始取得
 
-首頁的薪資摘要需要兩份資料：熱門公司平均薪資，以及熱門職稱薪資分布。原本資料只在瀏覽器端透過 `useEffect` 取得：
+首頁的薪資摘要需要兩份資料，原本只在瀏覽器端透過 `useEffect` 取得：
 
 ```jsx
 useEffect(() => {
@@ -45,23 +43,15 @@ useEffect(() => {
 }, [dispatch, popularCompanyAverageSalaryBox])
 ```
 
-`BoxesRenderer` 會依資料狀態顯示不同內容：
-
-```text
-UNFETCHED              → 不顯示內容
-FETCHING 且沒有 data    → 顯示 Loader
-FETCHED                → 顯示薪資摘要
-```
-
-因此修改前的載入過程不是單純從空白直接變成圖表，而可能經過：
+Server 輸出 HTML 時資料還不存在，這個區塊完全沒有內容。Hydration 之後才發出 request，畫面依序經過：
 
 ```text
 空白 → Loader → 完整的薪資摘要區塊
 ```
 
-Loader 與完整區塊的高度不同。當這些變化發生在頁面上方，下方內容便會被推動，形成一次或多次 layout shift。
+三個狀態的高度都不同。這些變化發生在頁面上方，下方內容便被一次次往下推。
 
-## 主要修正：將首屏資料加入 SSR fetchData
+## 主要修正：將首屏資料加入 SSR
 
 專案本來就有 route component 的 `fetchData` 機制，因此將兩支薪資 API 加入首頁的 SSR 資料流程：
 
@@ -76,28 +66,21 @@ LandingPage.fetchData = ({ store: { dispatch } }) => {
 }
 ```
 
-修改後，server 會在輸出 HTML 前先取得資料。瀏覽器第一次排版時，薪資摘要的標題、連結、卡片外框與圖表容器就已經存在，不必等 hydration 後才把整個區塊插入頁面。
+修改後，server 在輸出 HTML 前就取得資料。瀏覽器第一次排版時，薪資摘要區塊已經存在，不必等 hydration 後才插入。
 
-這次使用 `Promise.all`，所以四個請求是並行執行，等待時間不會直接相加；但 SSR 仍必須等最慢的請求完成。CLS 改善的代價是 TTFB 可能上升，因此部署後除了 CLS，也應觀察 TTFB、LCP、API latency 與 SSR error rate。
+代價是 SSR 必須等最慢的 API 回應，TTFB 可能上升。部署後除了 CLS，也要確認 TTFB 與 LCP 沒有惡化。
 
-## SSR 只有圖表外框，圖表本身仍由 client 載入
+> 把 API 搬進 SSR 前，要確認 action 會把錯誤轉成 error state，而不是讓 promise reject。原本 client 端失敗只會讓單一區塊卡在 Loader；放進 SSR 的 `Promise.all` 後，一個未處理的 rejection 就會讓整個首頁回傳 500。
 
-兩張圖表使用 `@loadable/component` 動態載入：
+## SSR 只有圖表外框，靠固定高度避免位移
 
-```jsx
-const SalaryDistributionChart = loadable(() => import('common/Charts/SalaryDistributionChart'))
+兩張圖表使用 `@loadable/component` 動態載入，而 server 沒有整合 `ChunkExtractor`，所以 SSR HTML 裡只有：
 
-const JobTitleDistributionChart = loadable(() => import('common/Charts/JobTitleDistributionChart'))
-```
-
-目前 server 沒有整合 `ChunkExtractor`，實際 SSR HTML 也沒有 Recharts 產生的元素。因此不能說「完整圖表已經 SSR」。Server 輸出的是：
-
-- 薪資摘要的標題
-- 「看更多」連結
+- 標題與「看更多」連結
 - 卡片外框
-- 空白但已預留高度的圖表容器
+- 空白的圖表容器
 
-圖表內容要等 JavaScript chunk 載入後才會畫出來。它沒有造成新的版面位移，是因為外層預先固定了高度：
+圖表內容要等 JavaScript chunk 載入後才畫出來。它沒有造成新的位移，是因為容器預先固定了高度：
 
 ```css
 .barChart {
@@ -106,71 +89,26 @@ const JobTitleDistributionChart = loadable(() => import('common/Charts/JobTitleD
 }
 ```
 
-這帶出另一個重要原則：如果內容不適合 SSR，也可以讓第一次排版就擁有與最終內容相同的空間。固定高度、`min-height`、`aspect-ratio` 或尺寸穩定的 skeleton，都可以用來避免非同步內容載入後撐開頁面。
+這是另一個重要原則：**內容不一定要 SSR，但空間一定要先佔好。** 固定高度、`min-height`、`aspect-ratio` 或尺寸穩定的 skeleton，都能讓非同步內容載入後不撐開頁面。
 
-## API 的 await 必須放進 try/catch
+## 圖片的 width / height：良好實踐，但不是這次的主因
 
-把 API 加入 SSR 時，也發現原本的錯誤處理範圍不完整：
-
-```js
-const data = await getDataApi()
-
-try {
-  dispatch(setData(getFetched(data)))
-} catch (error) {
-  dispatch(setData(getError(error)))
-}
-```
-
-API rejection 會在 `await` 那一行被拋出。因為它位於 `try` 外，下面的 `catch` 根本接不到。
-
-正確寫法是：
-
-```js
-try {
-  const data = await getDataApi()
-  dispatch(setData(getFetched(data)))
-} catch (error) {
-  dispatch(setData(getError(error)))
-}
-```
-
-修改前，action 已經先將狀態設為 `FETCHING`。如果 API reject，狀態就會一直停在 `FETCHING`，畫面持續顯示 Loader，client 端還會產生 unhandled promise rejection。這本來就是一個錯誤，只是 API 正常時不容易被發現。
-
-加入 SSR 後，問題會更嚴重：任何未處理的 rejection 都會讓 `Promise.all` reject，錯誤接著傳到 Express 的 `next(err)`，可能使整個頁面回傳錯誤。將 `await` 放入 `try`，才能把失敗轉成預期的 Redux error state，避免單一資料來源拖垮整個首頁 SSR。
-
-## 圖片尺寸是良好實踐，但不是這次歸零的主因
-
-這次也替 Footer 圖片補上了原始尺寸：
+圖片在下載完成前，瀏覽器不知道它的比例，載入後才撐開高度。替 `<img>` 補上素材的原始尺寸，瀏覽器就能提早算出 aspect ratio 並預留空間：
 
 ```jsx
-<img src={GjLogo} className={styles.logo} alt="GoodJob" width="160" height="47" />
+<img src={GjLogo} alt="GoodJob" width="160" height="47" />
 ```
 
-`160 × 47` 來自 SVG 的 `viewBox`：
-
-```html
-<svg viewBox="0 0 160 47"></svg>
-```
-
-另外兩張圖片同樣使用素材本身的尺寸：
-
-```jsx
-<img src={MediasImg} width="258" height="117" alt="..." />
-<img src={LogoG0vImg} width="313" height="32" alt="g0v" />
-```
-
-這些 attribute 的主要用途不是鎖定實際顯示尺寸，而是讓瀏覽器在圖片下載完成前就知道 intrinsic aspect ratio，提早預留空間。
-
-但專案原本有一條全域規則：
+要注意的是，專案原本的全域規則是：
 
 ```css
 img {
+  display: block;
   width: 100%;
 }
 ```
 
-如果只新增 HTML 的 `width` 和 `height`，CSS 會蓋過 `width`，`height` 卻仍可能維持 attribute 提供的固定值，導致圖片隨容器變寬或變窄時比例失真。因此這次必須同時新增：
+只補 HTML attribute 時，CSS 會蓋過 `width`，`height` 卻會被當成固定高度，圖片隨容器縮放時就會變形。因此必須同時補上 `height: auto`，讓 attribute 只負責提供比例：
 
 ```css
 img {
@@ -180,73 +118,30 @@ img {
 }
 ```
 
-這樣 HTML attribute 負責提供比例，CSS 負責決定實際寬度，`height: auto` 則讓高度依原始比例計算。
-
-新增全域規則前，也要搜尋現有 `<img>` 與相關 CSS，確認沒有圖片依賴 HTML `height` attribute，並確認需要固定高度或裁切效果的圖片有更高 specificity 的局部樣式覆蓋。
-
-Footer 通常位於初始 viewport 以外，離開 viewport 的位移不會對這次 Lighthouse 首屏 CLS 產生同等影響。因此圖片尺寸應視為順手補上的穩定性改善，而不是這次 CLS 歸零的主要原因。主要改善仍來自首屏薪資摘要的 SSR 與圖表容器預留高度。
+不過這次補尺寸的圖片都在 Footer。Lighthouse 載入期間不會捲動，只有 viewport 內元素的位移會被計入，所以這項修改對這次的 lab CLS 沒有貢獻，主要改善來自薪資摘要的 SSR 與圖表容器的固定高度。
 
 ## 如何驗證修改真的生效
 
-### 使用 production build
-
-效能驗證應使用 production build，而不是 dev server：
+**使用 production build。** Dev mode 的 CSS 由 JavaScript 注入，頁面會先以未套用樣式的狀態出現再重新排版，本身就會產生額外的 CLS，無法反映正式環境：
 
 ```bash
 yarn build
 yarn start-production
 ```
 
-Dev mode 除了程式碼未壓縮，也可能由 JavaScript 注入 CSS。頁面可能先以樣式尚未完成的狀態出現，再重新排版，造成額外的 FOUC 與 CLS，無法公平比較正式環境。
+**確認 SSR 輸出。** 用「檢視網頁原始碼」搜尋薪資摘要的標題，或關閉 JavaScript 後重新整理，應該能看到區塊外框與預留高度的空白圖表容器。
 
-如果舊版 Razzle／Webpack 在新版 Node.js 遇到 OpenSSL 相容性問題，可以在本機驗證時暫時使用：
+**找出位移來源。** 在 Chrome DevTools 的 Performance 面板錄製重新載入，檢查 Layout shifts 軌道標記的元素，再往上尋找稍早插入或改變尺寸的內容。
 
-```bash
-NODE_OPTIONS=--openssl-legacy-provider yarn build
-```
+**比較前後時固定條件。** Mobile 與 Desktop 的版面不同，必須使用相同模式、相同 throttling，並至少跑三次取中位數。
 
-這只是建置環境的相容處理，與 CLS 修正本身無關。
+## Lab CLS 為 0，不等於使用者體驗已經改善
 
-### 檢查 SSR HTML
-
-使用瀏覽器的「檢視網頁原始碼」，搜尋首頁實際顯示的公司名稱或「的薪水」。應該可以找到標題、連結和卡片結構，但不應期待找到完整 Recharts 圖表。
-
-關閉 JavaScript 後重新整理，也應看到 SSR 輸出的薪資摘要外框，以及保留高度但沒有圖表內容的空白區域。這能證明首屏空間已由 server 輸出，同時避免誤以為動態圖表本身也完成了 SSR。
-
-### 使用 Performance 面板找出因果關係
-
-Chrome DevTools 的 Performance 面板可以記錄重新載入，並檢查時間軸中的 `Layout Shift` event。看到被標記的元素後，不要只檢查該元素本身，也要往上尋找稍早插入或改變尺寸的內容。
-
-### 在相同條件下重跑 Lighthouse
-
-比較前後結果時，應固定：
-
-- Mobile 或 Desktop 模式
-- viewport、CPU 與網路 throttling
-- production build
-- 測試頁面與登入狀態
-- 瀏覽器擴充套件狀態
-
-建議使用無痕視窗並至少執行三次，取中位數。Mobile 與 Desktop 的 layout 不同，不能拿其中一種修改前的數字，直接與另一種修改後的數字比較。
-
-## Lab CLS 為 0，不等於 field CLS 已經完成改善
-
-Lighthouse 只測量一次受控的頁面載入流程，適合快速驗證修改方向。CrUX 則來自真實使用者，包含不同裝置、網路、cache 狀態和互動行為。
-
-因此這次能下的結論是：
-
-> 在這次 Lighthouse 測試條件下，首頁的 lab CLS 降至 0；production CrUX field data 是否同步改善，仍需在部署後持續觀察。
-
-CrUX 使用最近 28 天的滾動資料。新版本上線後，數值可能隨新樣本進入而逐步改變，不需要等滿 28 天才看到任何變化，但舊版本資料完全離開視窗仍需要時間。
+Lighthouse 只測量一次受控的頁面載入；PageSpeed 上方的 CrUX field data 來自真實使用者最近 28 天的滾動資料，包含不同裝置、網路與捲動行為。因此這次能下的結論是：lab CLS 已降至 0，field data 是否同步改善，要在部署後持續觀察。
 
 ## 結語
 
-這次 CLS 優化的核心，不是單純替某個元素加上固定高度，而是讓瀏覽器在第一次排版時就知道頁面最終需要多少空間：
-
-- 將首屏資料移到 SSR，避免 hydration 後才插入整個區塊。
-- 即使動態圖表沒有 SSR，也先輸出外框並預留 `265px` 高度。
-- 將 API 的 `await` 放進 `try/catch`，避免 client 狀態卡在 `FETCHING`，也避免 SSR 因單一 rejection 失敗。
-- 為圖片提供原始尺寸，並新增 `height: auto`，讓比例資訊和響應式 CSS 正確合作。
-- 將 Lighthouse 標記的元素視為調查起點，而不是直接當成根因。
-
-最後，效能修改不能只看單一分數。CLS 改善後，也要確認 TTFB、LCP 與錯誤率沒有惡化，並等待 field data 驗證真實使用者是否獲得同樣的改善。
+- Lighthouse 標記的元素是調查起點，不一定是根因。
+- 首屏資料移到 SSR，避免 hydration 後才插入整個區塊。
+- 無法 SSR 的內容，先用固定高度把空間佔好。
+- 圖片提供原始尺寸時，要搭配 `height: auto`。

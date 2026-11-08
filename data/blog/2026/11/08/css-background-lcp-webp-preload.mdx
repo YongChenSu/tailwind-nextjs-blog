@@ -1,0 +1,325 @@
+---
+title: 'CSS 背景圖的 LCP 優化：WebP、preload 與 Lighthouse 模擬值陷阱'
+date: '2026-11-08T13:00:00'
+tags: [web-vitals, lcp, webp, lighthouse, performance]
+draft: false
+summary: '記錄一次首頁 CSS 背景圖的 LCP 優化：將 PNG 改成 WebP、透過 SSR preload 提早下載，並釐清 Lighthouse headline LCP 與 observed breakdown 為何可能相差十幾秒。'
+authors: ['YongChen']
+---
+
+# CSS 背景圖的 LCP 優化：WebP、preload 與 Lighthouse 模擬值陷阱
+
+完成首頁 CLS 優化後，我接著處理 Banner 的 Largest Contentful Paint（LCP）。這次修改看似簡單：把 PNG 換成 WebP，再替 CSS 背景圖加上 preload；真正花時間的部分，卻是驗證 Lighthouse 數字究竟代表什麼。
+
+測試過程中，Lighthouse headline LCP 曾經顯示 `3.9 s`，也曾跳到 `14.3 s`。但同一份報告的 LCP breakdown 加總只有約 `220 ms`。如果只看最醒目的紅色數字，很容易誤判圖片優化失敗，甚至繼續修改已經沒有問題的 Banner。
+
+這篇記錄完整的實作與驗證方式，以及 simulated throttling 和 observed trace 之間容易混淆的差異。
+
+## 原始問題：CSS 背景圖比較晚才被發現
+
+首頁 Banner 原本使用 PNG 作為 CSS background：
+
+```css
+.banner {
+  background: #fffae1 url('../images/about-people-colored.png') no-repeat right bottom;
+  background-size: 347px;
+}
+```
+
+一般 `<img>` 出現在 HTML 時，瀏覽器解析文件便能發現圖片 URL。CSS background 則必須經過更多步驟：
+
+```text
+下載 HTML
+→ 發現並下載 CSS
+→ 解析 CSS
+→ 發現 background-image
+→ 開始下載圖片
+```
+
+如果這張背景圖是 LCP element，圖片發現時間就會直接影響 LCP。即使圖片本身不大，只要瀏覽器開始 request 的時間太晚，仍然可能產生明顯的 resource load delay。
+
+## 第一步：將 PNG 改成 WebP
+
+原始 PNG 和新 WebP 的尺寸完全相同：
+
+```text
+寬度：521 px
+高度：207 px
+```
+
+檔案大小則有明顯差異：
+
+```text
+PNG   55,913 bytes
+WebP  26,676 bytes
+```
+
+WebP 減少了約 52% 的檔案大小。CSS 改為引用新素材：
+
+```css
+.banner {
+  background: #fffae1 url('../images/about-people-colored.webp') no-repeat right bottom;
+  background-size: 347px;
+}
+```
+
+轉換格式時不能只比較檔案大小，也要確認：
+
+- pixel width 和 height 相同
+- 透明背景仍然正確
+- 壓縮後沒有明顯色塊、邊緣模糊或文字失真
+- 專案支援的瀏覽器可以顯示 WebP
+
+這次沒有刪除原本的 PNG，因為其他元件仍然引用它。只有首頁 Banner 切換成 WebP，避免意外影響其他畫面。
+
+## 第二步：在 SSR HTML 中 preload 背景圖
+
+只把 PNG 換成 WebP，可以降低下載時間，卻沒有解決 CSS background 發現較晚的問題。因此在 Banner 元件中，透過 React Helmet 加入 preload：
+
+```jsx
+import Helmet from 'react-helmet'
+
+import heroImage from 'images/about-people-colored.webp'
+
+const Banner = () => (
+  <section className={styles.banner}>
+    <Helmet>
+      <link rel="preload" as="image" href={heroImage} fetchpriority="high" />
+    </Helmet>
+
+    {/* Banner content */}
+  </section>
+)
+```
+
+這個專案會在 server render 時執行 `Helmet.rewind()`，再將 `head.link` 輸出到 `<head>`。因此 preload 不必等 React 在瀏覽器執行，而是直接存在於第一份 HTML response：
+
+```html
+<head>
+  <link
+    rel="preload"
+    as="image"
+    href="/static/media/about-people-colored.[hash].webp"
+    fetchpriority="high"
+  />
+</head>
+```
+
+瀏覽器解析 HTML 時就能開始下載圖片，不必等 CSS 完成下載與解析。
+
+## preload URL 必須和 CSS URL 完全相同
+
+preload 最容易踩到的問題，是 preload 和真正使用的 resource URL 不一致。
+
+例如以下兩個 URL 即使內容相同，瀏覽器仍可能視為不同 request：
+
+```text
+/images/about-people-colored.webp
+/static/media/about-people-colored.a1b2c3.webp
+```
+
+結果會變成：
+
+```text
+preload 下載一次
+CSS background 再下載一次
+```
+
+這次 JavaScript import 和 CSS `url()` 都指向同一個 source file，交給 Webpack 產生相同的 hashed asset URL。實際驗證時，Network 也只出現一筆 request，確認 preload 有被 CSS background 重用。
+
+preload 是高優先度提示，不應對大量非關鍵圖片使用。預載過多資源會和 CSS、字型、JavaScript 或真正的 LCP resource 競爭頻寬，反而可能讓整體效能變差。它適合已確認為首屏 LCP 的少數關鍵資源。
+
+## 使用 production build 驗證
+
+效能測量不能使用開發模式。Dev server 可能透過 JavaScript 注入 CSS，還包含 hot reload、額外檢查及未最佳化的 bundle，測得的載入順序與 production 不同。
+
+這個舊版 Razzle／Webpack 專案在新版 Node.js 上需要暫時啟用 OpenSSL 相容模式：
+
+```bash
+NODE_OPTIONS=--openssl-legacy-provider yarn build
+yarn start-production
+```
+
+接著從幾個層次確認修改生效。
+
+### 1. 檢查原始 HTML
+
+使用「檢視網頁原始碼」，而不是 DevTools Elements，搜尋：
+
+```text
+about-people-colored
+```
+
+應該在 `<head>` 找到 WebP preload。只在 Elements 看到還不夠，因為那可能是 client JavaScript 執行後才插入的節點。
+
+### 2. 檢查 Network
+
+在 Chrome DevTools Network 面板：
+
+1. 勾選 `Disable cache`
+2. 在欄位標題按右鍵，顯示 `Priority`、`Start Time` 和 `Duration`
+3. 搜尋 `about-people-colored`
+4. 重新整理頁面
+
+這次實際結果是：
+
+```text
+格式：WebP
+請求數：1
+Priority：High
+Initiator：preload
+```
+
+這四項比單看 Lighthouse 分數更能直接證明實作是否正確。
+
+### 3. 排除 TTFB 波動
+
+LCP 偶爾超過 12 秒時，一度懷疑首頁 SSR 等待 API，導致整份 HTML 和 preload 太晚送出。連續測量 TTFB 後，結果大多只有約 `16–35 ms`，第一次約 `121 ms`：
+
+```bash
+for i in {1..10}; do
+  curl -s -o /dev/null \
+    -w 'TTFB: %{time_starttransfer}s Total: %{time_total}s\n' \
+    http://localhost:3000/
+done
+```
+
+這排除了 server response 是 12 秒 LCP 的主要原因。
+
+## 同一份報告，為什麼 LCP 是 14.3 秒又是 220 毫秒？
+
+其中一次 Lighthouse 報告顯示：
+
+```text
+First Contentful Paint     1.8 s
+Largest Contentful Paint  14.3 s
+Total Blocking Time        130 ms
+Cumulative Layout Shift    0
+```
+
+但展開 LCP breakdown，LCP element 確實是 Banner，四個階段卻是：
+
+```text
+Time to first byte          70 ms
+Resource load delay         10 ms
+Resource load duration      10 ms
+Element render delay       130 ms
+---------------------------------
+Observed total             220 ms
+```
+
+兩組數字沒有算錯，它們使用了不同的時間模型。
+
+Lighthouse 預設使用 simulated throttling。它先觀察一次沒有套用完整 throttling 的載入，再由 Lantern 模型推算在慢速行動裝置上的指標。報告最上方的 headline LCP 是模擬結果，但新版 LCP breakdown insight 顯示的是 observed trace subparts。
+
+因此同一份報告可能同時出現：
+
+```text
+Headline LCP：模擬值
+LCP breakdown：實際 trace 觀察值
+```
+
+Lighthouse 官方 issue 已確認這個 UI 容易造成誤解：simulated headline LCP 不一定等於 observed breakdown 的總和，而且目前無法準確模擬每一個 LCP subpart。
+
+這次 breakdown 特別有價值，因為它直接證明：
+
+- Banner 確實是 LCP element
+- preload discovery delay 只有 10 ms
+- WebP resource load duration 只有 10 ms
+- render delay 只有 130 ms
+
+所以不能用 `14.3 s` 直接推論「WebP 或 preload 沒有生效」。
+
+## 使用 DevTools throttling 取得一致的 trace
+
+Chrome Lighthouse 面板提供兩種模式：
+
+```text
+Default                         → Simulated throttling
+DevTools throttling (advanced) → 實際套用 throttling
+```
+
+要讓 Lighthouse headline metric 和 Performance trace 使用相同的計時方式，可以選擇 `DevTools throttling (advanced)`，並保持：
+
+```text
+Clear storage：開啟
+Device：Mobile
+Category：Performance
+```
+
+另一種方式是直接在 Performance 面板選擇 Slow 4G 和 CPU slowdown，錄製一次重新載入，再查看 LCP marker、resource timing 和 related node。
+
+Advanced mode 可能比 simulated mode 更容易受到本機 CPU、背景程式與瀏覽器 scheduling 影響，因此仍應執行至少三次，使用中位數，而不是挑最好或最差的一次。
+
+## 為什麼 Advanced 模式的 TBT 可能變成 0？
+
+Total Blocking Time（TBT）不是 JavaScript 的總執行時間。它只計算 FCP 到可互動期間，單一 main-thread task 超過 50 ms 的部分：
+
+```text
+40 ms task  → blocking time 0 ms
+50 ms task  → blocking time 0 ms
+80 ms task  → blocking time 30 ms
+120 ms task → blocking time 70 ms
+```
+
+Simulated mode 可能將某些 task 推算到 50 ms 以上，因此得到 `130 ms`。Advanced mode 則使用當次實際排程；如果所有 task 都低於 50 ms，或長工作發生在 TBT 計算區間以外，結果就可能是 `0`。
+
+所以 TBT 為 0 不代表沒有執行 JavaScript，只代表這次 trace 中沒有符合 TBT 定義的 blocking portion。不同 throttling mode 的數字不能直接當成同一種測量互相比較。
+
+## 不要把所有 Lighthouse 建議都歸因於 LCP 圖片
+
+同一份報告還列出：
+
+```text
+Reduce unused JavaScript   1,322 KiB
+Avoid enormous payloads    3,077 KiB
+Reduce unused CSS            168 KiB
+Render-blocking requests      990 ms estimated savings
+Improve image delivery        144 KiB estimated savings
+```
+
+這些都是值得後續處理的網站效能問題，但不代表 Banner WebP 仍然有 144 KiB 可以節省。展開 `Improve image delivery` 後，應確認 Lighthouse 實際列出的圖片，而不是看到 image audit 就直接修改 LCP resource。
+
+同樣地，總 bundle 很大可能讓 Lighthouse 的 Lantern dependency graph 推算出較差的 headline metric，但 observed breakdown 已經顯示 Banner 圖片很早完成。不同問題應分開建立 baseline、修改和成功條件。
+
+## 這次優化的成功標準
+
+這次沒有把某一次 Lighthouse headline 分數當成唯一標準，而是確認整條資源載入流程：
+
+- Banner 圖片從 PNG 改為 WebP，檔案大小降低約 52%
+- WebP 與 PNG 的畫面尺寸相同
+- preload 存在於 SSR 原始 HTML，而不是 hydration 後才加入
+- preload 和 CSS background 使用完全相同的 URL
+- Network 只下載一次圖片
+- request priority 為 High
+- LCP element 確認是 Banner
+- observed resource load delay 為 10 ms
+- observed resource load duration為 10 ms
+- TTFB 穩定，沒有十秒等級的 server delay
+
+這些證據共同證明 WebP 與 preload 已生效。至於真實使用者的 LCP 是否改善，仍要在部署後觀察 CrUX field data。CrUX 使用最近 28 天的滾動資料，不會在部署當下立刻完整反映新版本。
+
+## 結語
+
+這次最大的收穫，不只是學會替 CSS background 加 preload，而是學會拆開「資源載入是否已優化」和「Lighthouse headline 顯示多少」這兩個問題。
+
+圖片優化可以按照因果順序驗證：
+
+```text
+圖片是否更小
+→ 是否在初始 HTML 被發現
+→ 是否以正確優先度開始下載
+→ preload 是否被真正使用
+→ 是否只下載一次
+→ LCP breakdown 的 delay 和 duration 是否下降
+→ field data 是否逐步改善
+```
+
+當 headline LCP 與 breakdown 相差十幾秒時，不應立刻繼續壓縮圖片或增加更多 preload。先確認兩者使用的是 simulated 還是 observed timing，再回到 Network waterfall 和 Performance trace，才能避免為錯誤的指標做錯誤的優化。
+
+## 參考資料
+
+- [Chrome DevTools：使用 Lighthouse 最佳化網站速度](https://developer.chrome.com/docs/devtools/lighthouse/)
+- [Lighthouse：Network and CPU throttling](https://github.com/GoogleChrome/lighthouse/blob/main/docs/throttling.md)
+- [Lighthouse issue：headline LCP 與 breakdown subparts 不一致](https://github.com/GoogleChrome/lighthouse/issues/16947)
+- [Lighthouse issue：LCP breakdown insight 容易混淆](https://github.com/GoogleChrome/lighthouse/issues/16769)
