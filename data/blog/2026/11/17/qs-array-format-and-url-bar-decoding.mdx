@@ -1,0 +1,87 @@
+---
+title: 'qs 的陣列格式，以及網址列看到的不是實際網址'
+date: '2026-11-17'
+tags: [javascript, qs, url, debugging]
+draft: false
+summary: '多選篩選的網址在換排序後，陣列格式從 repeat 悄悄變成 indices。因為 qs.parse 很寬鬆，功能完全正常。另外整理 Chrome 網址列會解碼哪些字元：中文會解碼，[ ] 則維持 %5B、%5D。'
+authors: ['YongChen']
+---
+
+# qs 的陣列格式，以及網址列看到的不是實際網址
+
+這篇記錄一個不容易發現的 bug：多選篩選的網址在換排序之後，格式悄悄變了，但功能完全正常。
+
+## 實例
+
+薪資篩選器的「工作經歷」可以多選。按「套用」時，網址寫成：
+
+```
+?experience=0_3&experience=4_7
+```
+
+接著換排序，網址變成：
+
+```
+?experience%5B0%5D=0_3&experience%5B1%5D=4_7&sort_by=HIGH_HOUR_SALARY_FIRST
+```
+
+原因是兩個地方寫網址時，傳給 `qs.stringify` 的選項不一樣：
+
+```js
+// 套用篩選
+qs.stringify(query, { addQueryPrefix: true, arrayFormat: 'repeat' });
+
+// 換排序（修正前）：沒指定 arrayFormat，用了預設的 indices
+qs.stringify(query, { addQueryPrefix: true });
+```
+
+## arrayFormat 是什麼
+
+`arrayFormat` 是 `qs.stringify` 的選項，決定陣列要怎麼寫進網址。
+
+查詢字串本身只有 `key=value` 這種寫法，沒有統一規定陣列該怎麼表示，所以同一個陣列有好幾種寫法。`arrayFormat` 用來選其中一種。
+
+- **只影響「寫」**：它決定物件怎麼轉成網址字串。
+- **「讀」的那一邊不用設定**：`qs.parse` 會自動認得大部分寫法（見下表）。
+- **不指定時是 `indices`**：上面的 bug 就是用了這個預設值，跟「套用」時的 `repeat` 不一致。
+
+## qs 的陣列格式比較
+
+| `arrayFormat`     | `stringify({ a: ['x', 'y'] })` | `qs.parse` 解析結果 |
+| ----------------- | ------------------------------ | ------------------- |
+| `indices`（預設） | `a[0]=x&a[1]=y`                | `['x', 'y']`        |
+| `brackets`        | `a[]=x&a[]=y`                  | `['x', 'y']`        |
+| `repeat`          | `a=x&a=y`                      | `['x', 'y']`        |
+| `comma`           | `a=x,y`                        | `'x,y'`（字串）     |
+
+- **預設會編碼**：`[`、`]` 會編成 `%5B`、`%5D`。表格為了好讀，寫的是未編碼的樣子。
+- **`qs.parse` 很寬鬆**：`indices`、`brackets`、`repeat` 三種都會解析回同一個陣列。所以就算寫出去的格式不一致，功能也不會壞，bug 很難被發現。`comma` 是例外，要加 `{ comma: true }` 才會解析成陣列。
+- **單一值不會變成陣列**：`a=x` 解析出來是字串 `'x'`。所以只選一個值時，換排序不會出問題，要選兩個以上才會出現。
+
+## 怎麼避免
+
+- **選項要一致**：如果有好幾個地方寫同一組 query，把 `stringify` 集中到一個共用函式，就不會有地方漏設 `arrayFormat`。
+- **測試要比對原始字串**：要直接斷言 `location.search`。用 `qs.parse` 比對的話，兩種格式解析出來一樣，測試抓不到這個 bug。
+
+```js
+expect(history.location.search).toBe(
+  '?experience=0_3&experience=4_7&sort_by=HIGH_HOUR_SALARY_FIRST',
+);
+```
+
+## 網址列不會把 `%5B`、`%5D` 解碼
+
+換排序之後，網址列顯示的就是 `experience%5B0%5D=...`，不會解碼成 `experience[0]=...`。
+
+- **Chrome 只解碼不影響網址解析的字元**：Chrome 從 65 版開始，會把 path、query、fragment 解碼後再顯示，但會改變網址解析方式的字元（像 `#`、`?`）會保留編碼。在 Chromium 的解碼表裡，`[`、`]` 也被標成不解碼，所以網址列直接顯示 `%5B`、`%5D`。
+- **中文會被解碼**：中文公司名稱在網址列顯示成中文，複製出來卻是 `%E5%8F%B0...`。中文字不在 Chromium 的禁止清單裡，所以會被解碼後顯示。
+- **網址列 ≠ 實際網址**：因為有部分字元會被解碼，網址列顯示的不一定是實際送出的字串。
+- **確認實際值的方法**：在 DevTools Console 執行 `location.search`。回傳值包含開頭的 `?`，而且讀取時不會解碼，看到的就是實際的字串。
+
+## 參考資料
+
+- [ljharb/qs README（GitHub）](https://github.com/ljharb/qs)：`arrayFormat` 各選項的輸出、預設會 URI 編碼、`comma: true` 的解析
+- [Percent-encoding – MDN Glossary](https://developer.mozilla.org/en-US/docs/Glossary/Percent-encoding)：percent-encoding 的定義，`[` → `%5B`、`]` → `%5D`
+- [Location: search property – MDN](https://developer.mozilla.org/en-US/docs/Web/API/Location/search)：回傳值包含開頭的 `?`，讀取時不會 percent-decode
+- [Guidelines for URL Display – Chromium Docs](https://chromium.googlesource.com/chromium/src/+/main/docs/security/url_display_guidelines/url_display_guidelines.md)：「As of Chrome 65, we unescape path, query, and fragment components for display.」
+- [base/strings/escape.cc – Chromium source](https://chromium.googlesource.com/chromium/src/+/main/base/strings/escape.cc)：`kUrlUnescape` 表中 `[`、`]` 為 0（不解碼），註解寫「we can't unescape anything that would changing parsing like # or ?」；非 ASCII 字元只有在禁止清單內才保留編碼
