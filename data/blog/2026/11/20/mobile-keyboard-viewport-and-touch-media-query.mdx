@@ -22,11 +22,11 @@ authors: ['YongChen']
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | <img src="/static/images/2026/11/20/mobile-keyboard-autocomplete-clipped-before.png" alt="虛擬鍵盤開啟後，公司名稱 autocomplete 選單被下方的進度列與 footer 裁切" width="300" /> | <img src="/static/images/2026/11/20/mobile-keyboard-textarea-one-line-before.png" alt="虛擬鍵盤開啟後，textarea 的可視範圍只剩一行，底部操作按鈕也擠在輸入框下方" width="300" /> |
 
-這篇記錄第一個問題，也就是可視高度不足。
+兩個問題的原因相同：虛擬鍵盤彈出後，留給表單的高度不夠。
 
 ## 第一個念頭：找能處理高度的 CSS 單位
 
-問題是「鍵盤彈出後高度不夠」，所以我先查有沒有 CSS 單位可以處理，查到了下面這幾個：
+既然是高度不夠，我先查有沒有 CSS 單位可以處理，查到了下面這幾個：
 
 | 單位  | 代表的高度                                                             |
 | ----- | ---------------------------------------------------------------------- |
@@ -40,7 +40,7 @@ authors: ['YongChen']
 
 ## 為什麼它們解決不了
 
-跟 AI 討論之後，我才了解手機上有兩種 viewport：
+關鍵在於手機瀏覽器有兩種 viewport：
 
 - **layout viewport**：頁面排版依據的範圍。`vh` 這類 viewport 單位會受與它相關的 initial containing block 大小影響。
 - **visual viewport**：使用者實際看得到的範圍，會扣掉螢幕鍵盤、pinch-zoom 放大後看不到的區域。
@@ -48,25 +48,6 @@ authors: ['YongChen']
 鍵盤彈出時，規格的預設行為是**只縮 visual viewport，layout viewport 不變**。這個行為叫做 `resizes-visual`。web.dev 的文章也寫明，虛擬鍵盤通常不算這些 viewport 單位要追蹤的瀏覽器介面。
 
 所以在這個預設行為下，就算把容器高度改成 `100dvh`，鍵盤彈出時它還是原本的高度，下半部直接被鍵盤蓋住。
-
-### 實測的 log
-
-後來我在調查另一個問題（鍵盤收起時背景閃一下）時，用 Chrome 印了 `visualViewport` 的數值。鍵盤收起的前後：
-
-```js
-window.visualViewport.addEventListener('resize', () => {
-  console.log({
-    scrollY: window.scrollY,
-    vvHeight: window.visualViewport.height,
-    vvOffsetTop: window.visualViewport.offsetTop,
-  })
-})
-```
-
-- `visualViewport.height`：從 `334` 變成 `662`
-- `scrollY`、`visualViewport.offsetTop`：一直是 `0`
-
-可見的高度幾乎差了一倍，但頁面完全沒有捲動。這對應上面的說明：鍵盤改變的是 visual viewport。
 
 ## 換個方向：讓出空間
 
@@ -143,31 +124,25 @@ function NextButton() {
 
 再配合前面的 `:has(...:focus)`，完整條件就是「文字輸入框取得 focus，而且裝置主要由手指操作時，隱藏 header 和 footer」。因此，一般以滑鼠或觸控板操作的桌機不會套用這段樣式。
 
-這仍然只是近似判斷。它偵測的是主要指向裝置，不是手機，也不是虛擬鍵盤是否存在或當前有沒有開啟。
+這仍然只是近似判斷。它偵測的是主要指向裝置，不是手機，也不是虛擬鍵盤是否存在或當前有沒有開啟。例如手機接上實體鍵盤時，不會跳出虛擬鍵盤，但仍然符合這個條件，header 和 footer 一樣會被隱藏。
 
 ### 為什麼不用 `max-width`
 
 這裡想判斷的是**主要操作方式**，不是視窗寬度。用寬度當作輸入方式的替代指標，桌機把視窗縮窄時也可能被誤判成手機；橫放的手機寬度變大，又可能不會命中。
 
-### 注意：它只看「主要」輸入裝置
-
-`hover` 和 `pointer` 只看**主要**輸入裝置。如果想知道「是否有**任何一個**輸入裝置符合」，要改用 `any-hover` 和 `any-pointer`。
-
-例如接了滑鼠的觸控筆電，主要輸入裝置是哪一個要看瀏覽器怎麼判定。反過來說，手機即使接了實體鍵盤，也可能仍然符合這個 media query。這次是想近似篩出「主要靠手指操作」的裝置，所以用 `hover` 和 `pointer` 比用寬度判斷更符合目的。
-
 ## Chrome 與 Safari 的呈現差異
 
 這次實測時，iPhone Chrome 和 Safari 在鍵盤開啟後的呈現方式不同：
 
-- **iPhone Chrome**：鍵盤開啟後會把表單內容往上推。「問題進度條、下一題」仍在鍵盤上方，但中間留給題目和輸入框的空間被壓縮，導致 textarea 幾乎只剩一行可見。本文處理的是這個問題。
-- **iPhone Safari**：不會出現同樣的 textarea 可視高度不足；鍵盤開啟時，「問題進度條、下一題」那一列會位於鍵盤後方，收起鍵盤後便會再次出現。
+- **iPhone Chrome**：鍵盤開啟後會把表單內容往上推。表單底部的操作列（顯示答題進度，以及「下一題」按鈕）仍在鍵盤上方，但中間留給題目和輸入框的空間被壓縮，導致 textarea 幾乎只剩一行可見，autocomplete 選單也被裁切。本文處理的是這兩個問題。
+- **iPhone Safari**：不會出現同樣的 textarea 可視高度不足；鍵盤開啟時，底部操作列會位於鍵盤後方，收起鍵盤後便會再次出現。
 
-因此，這篇文章著重的是 Chrome 上表單空間被壓縮的情況，以及如何在輸入期間替題目和輸入框讓出更多空間。
+因此，這篇文章著重的是 Chrome 上表單空間被壓縮的情況，以及如何在輸入期間替題目、輸入框和 autocomplete 選單讓出更多空間。
 
 ## 小結
 
 - `svh`、`lvh`、`dvh` 可以處理網址列等瀏覽器動態介面；在預設的 `resizes-visual` 行為下，虛擬鍵盤只縮 visual viewport，所以這些單位不會跟著鍵盤縮小。
-- iPhone Chrome 會把表單內容往上推，壓縮題目與輸入框的空間；Safari 則會讓底部操作列位於鍵盤後方。這篇文章處理的是 Chrome 上 textarea 可視高度不足的情況。
+- iPhone Chrome 會把表單內容往上推，壓縮題目與輸入框的空間；Safari 則會讓底部操作列位於鍵盤後方。這篇文章處理的是 Chrome 上表單空間被壓縮，導致 textarea 只剩一行、autocomplete 選單被裁切的情況。
 - 單純改用 viewport 單位無法解決時，可以用 `:has()` 在輸入框取得 focus 期間隱藏 header 和 footer，直接替表單讓出空間。
 - 版面會隨 focus 改變時，要在按鈕的 mousedown 上 `preventDefault()`，避免 blur 讓點擊落空。
 - 想近似篩出主要由手指操作的裝置，可以用 `@media (hover: none) and (pointer: coarse)`；它不能偵測虛擬鍵盤是否存在或已開啟。
