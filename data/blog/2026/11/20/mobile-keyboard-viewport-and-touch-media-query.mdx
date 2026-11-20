@@ -16,6 +16,12 @@ authors: ['YongChen']
 - **輸入框可視範圍只剩一行**：虛擬鍵盤彈出後壓縮了畫面空間，textarea 幾乎看不到自己在打什麼。
 - **公司名稱的 autocomplete 選單被裁切**：選單只露出一小部分。
 
+以下是修正前在 iPhone 上實測的畫面：
+
+| 公司名稱的 autocomplete 選單只露出一小部分                                                                                                                                       | textarea 的可視範圍只剩一行                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <img src="/static/images/2026/11/20/mobile-keyboard-autocomplete-clipped-before.png" alt="虛擬鍵盤開啟後，公司名稱 autocomplete 選單被下方的進度列與 footer 裁切" width="300" /> | <img src="/static/images/2026/11/20/mobile-keyboard-textarea-one-line-before.png" alt="虛擬鍵盤開啟後，textarea 的可視範圍只剩一行，底部操作按鈕也擠在輸入框下方" width="300" /> |
+
 這篇記錄第一個問題，也就是可視高度不足。
 
 ## 第一個念頭：找能處理高度的 CSS 單位
@@ -30,7 +36,7 @@ authors: ['YongChen']
 | `dvh` | dynamic viewport：隨工具列展開或收起動態調整，介於 `svh` 與 `lvh` 之間 |
 
 - **`dvh` 適合的情境**：滿版區塊、貼底按鈕。這類元素會因為手機網址列展開或收起而被切到，用 `dvh` 可以跟著動態 viewport 的高度調整。不過瀏覽器不保證在工具列動畫過程中逐幀更新。
-- **鍵盤通常不屬於這類動態介面**：虛擬鍵盤通常不被視為 `svh`、`lvh`、`dvh` 所描述的「可展開或收合的瀏覽器介面」。在預設行為下，鍵盤不會讓這些單位跟著縮小。
+- **鍵盤預設不會改變這些單位**：在預設的 `resizes-visual` 行為下，虛擬鍵盤只會縮小 visual viewport，不會改變 layout viewport，因此 `svh`、`lvh`、`dvh` 不會跟著鍵盤縮小。
 
 ## 為什麼它們解決不了
 
@@ -62,24 +68,9 @@ window.visualViewport.addEventListener('resize', () => {
 
 可見的高度幾乎差了一倍，但頁面完全沒有捲動。這對應上面的說明：鍵盤改變的是 visual viewport。
 
-### 那有辦法讓鍵盤也縮 layout viewport 嗎？
-
-有，在 viewport meta 加上 `interactive-widget=resizes-content`：
-
-```html
-<meta
-  name="viewport"
-  content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
-/>
-```
-
-- **預設值是 `resizes-visual`**：鍵盤只縮 visual viewport。
-- **`resizes-content`**：鍵盤會連 layout viewport 一起縮，viewport 單位也會跟著變。
-- **穩定版 iOS Safari 尚未支援**：截至 2026-11-20，依 Can I use 的資料，Android Chrome 支援，穩定版 iOS Safari 尚未支援。而我的問題在 iPhone 上最明顯，所以當時無法用這個方式解決。
-
 ## 換個方向：讓出空間
 
-既然沒辦法讓容器跟著鍵盤縮，就改成**減少畫面上的內容**。
+既然單純改用 viewport 單位無法解決，就改成**減少畫面上的內容**。
 
 手機的可視空間本來就小，表單的 header 和底部的黃色 footer（「完成可解鎖全站 17 萬多筆資訊」）又佔掉一部分。使用者在打字時用不到它們，所以輸入時把它們隱藏，把空間留給題目。
 
@@ -111,8 +102,6 @@ window.visualViewport.addEventListener('resize', () => {
 2. `:focus` 不再符合，header 和 footer 重新出現，版面往下移。
 3. 手指放開時，原本的按鈕已經不在手指下方，click 落空。
 
-用 delay 延後版面變化也沒用，只是讓跳動晚一點發生，而且畫面還是會跳兩次。
-
 解法是在按鈕和選項的 mousedown 上呼叫 `preventDefault()`。這會取消 mousedown 的預設行為，也就是移動 focus，所以輸入框不會失焦，版面也就不會在點擊途中移動：
 
 ```tsx
@@ -138,14 +127,23 @@ function NextButton() {
 
 ### `hover` 與 `pointer` 在偵測什麼
 
-| 條件              | 意思                                           | 典型裝置     |
-| ----------------- | ---------------------------------------------- | ------------ |
-| `hover: none`     | 主要輸入裝置沒辦法 hover，或不方便 hover       | 手機、平板   |
-| `hover: hover`    | 主要輸入裝置可以 hover                         | 滑鼠、觸控板 |
-| `pointer: coarse` | 主要輸入裝置的精準度有限，例如用手指點觸控螢幕 | 手機、平板   |
-| `pointer: fine`   | 主要輸入裝置很精準                             | 滑鼠、觸控筆 |
+這兩個 media feature 檢查的是**主要輸入裝置的能力**：
 
-兩個條件一起用，可以當作「主要靠手指操作的裝置」的近似條件。它們偵測的是主要指向裝置，不是虛擬鍵盤是否存在或當前有沒有開啟。
+- `hover: none`：主要輸入裝置無法方便地把游標停在元素上。
+- `pointer: coarse`：主要輸入裝置的點擊位置不夠精準。
+
+`and` 表示兩個條件都要成立，也就是「無法方便 hover，而且點擊位置不精準」。手指操作的觸控螢幕通常剛好符合這個組合：
+
+| 主要操作方式     | `hover`       | `pointer` | 是否符合兩個條件 |
+| ---------------- | ------------- | --------- | ---------------- |
+| 手機、平板的手指 | `none`        | `coarse`  | 是               |
+| 滑鼠             | `hover`       | `fine`    | 否               |
+| 觸控板           | `hover`       | `fine`    | 否               |
+| 觸控筆           | 通常是 `none` | `fine`    | 否               |
+
+再配合前面的 `:has(...:focus)`，完整條件就是「文字輸入框取得 focus，而且裝置主要由手指操作時，隱藏 header 和 footer」。因此，一般以滑鼠或觸控板操作的桌機不會套用這段樣式。
+
+這仍然只是近似判斷。它偵測的是主要指向裝置，不是手機，也不是虛擬鍵盤是否存在或當前有沒有開啟。
 
 ### 為什麼不用 `max-width`
 
@@ -157,31 +155,27 @@ function NextButton() {
 
 例如接了滑鼠的觸控筆電，主要輸入裝置是哪一個要看瀏覽器怎麼判定。反過來說，手機即使接了實體鍵盤，也可能仍然符合這個 media query。這次是想近似篩出「主要靠手指操作」的裝置，所以用 `hover` 和 `pointer` 比用寬度判斷更符合目的。
 
-## 已知限制
+## Chrome 與 Safari 的呈現差異
 
-在這次實測的 iPhone Safari 上，鍵盤開啟時「問題進度條、下一題」那一列還是會被鍵盤蓋住，要收起鍵盤才能操作；同一支 iPhone 的 Chrome 則沒有這個問題。
+這次實測時，iPhone Chrome 和 Safari 在鍵盤開啟後的呈現方式不同：
 
-隱藏 header 和 footer 只是讓出空間，沒有改變「在 `resizes-visual` 行為下，鍵盤不會縮 layout viewport」這件事。要讓底部按鈕列一定露在鍵盤上方，可能需要用 JS 讀 `visualViewport.height` 來設定容器高度。這部分我還沒有實作驗證。
+- **iPhone Chrome**：鍵盤開啟後會把表單內容往上推。「問題進度條、下一題」仍在鍵盤上方，但中間留給題目和輸入框的空間被壓縮，導致 textarea 幾乎只剩一行可見。本文處理的是這個問題。
+- **iPhone Safari**：不會出現同樣的 textarea 可視高度不足；鍵盤開啟時，「問題進度條、下一題」那一列會位於鍵盤後方，收起鍵盤後便會再次出現。
+
+因此，這篇文章著重的是 Chrome 上表單空間被壓縮的情況，以及如何在輸入期間替題目和輸入框讓出更多空間。
 
 ## 小結
 
-- `svh`、`lvh`、`dvh` 描述瀏覽器動態介面不同狀態下的 viewport；虛擬鍵盤通常不被當成這類介面。
-- 在預設的 `resizes-visual` 行為下，鍵盤只縮 visual viewport，所以 viewport 單位不會跟著變；`interactive-widget=resizes-content` 能讓 layout viewport 與 viewport 單位也受影響，但截至 2026-11-20 穩定版 iOS Safari 尚未支援。
-- 沒辦法讓容器跟著縮時，可以改成**讓出空間**：輸入時隱藏非必要的元素。
+- `svh`、`lvh`、`dvh` 可以處理網址列等瀏覽器動態介面；在預設的 `resizes-visual` 行為下，虛擬鍵盤只縮 visual viewport，所以這些單位不會跟著鍵盤縮小。
+- iPhone Chrome 會把表單內容往上推，壓縮題目與輸入框的空間；Safari 則會讓底部操作列位於鍵盤後方。這篇文章處理的是 Chrome 上 textarea 可視高度不足的情況。
+- 單純改用 viewport 單位無法解決時，可以用 `:has()` 在輸入框取得 focus 期間隱藏 header 和 footer，直接替表單讓出空間。
 - 版面會隨 focus 改變時，要在按鈕的 mousedown 上 `preventDefault()`，避免 blur 讓點擊落空。
 - 想近似篩出主要由手指操作的裝置，可以用 `@media (hover: none) and (pointer: coarse)`；它不能偵測虛擬鍵盤是否存在或已開啟。
 
 ## 參考資料
 
 - [The large, small, and dynamic viewports – web.dev](https://web.dev/blog/viewport-units)：`svh`、`lvh`、`dvh` 的定義；在預設鍵盤行為下，虛擬鍵盤不影響 viewport 單位
-- [CSS Viewport Module Level 1 – W3C](https://www.w3.org/TR/css-viewport-1/#interactive-widget)：`interactive-widget` 的三種行為，以及 `resizes-content` 如何影響 initial viewport
-- [&lt;length&gt; – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/length)：viewport 單位的定義，`vh` 等同 `lvh`
-- [Viewport concepts – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/CSSOM_view/Viewport_concepts)：鍵盤開啟時 visual viewport 縮小、layout viewport 不變；`vh` 以 layout viewport 為基準
-- [Visual viewport – MDN Glossary](https://developer.mozilla.org/en-US/docs/Glossary/Visual_Viewport)：visual viewport 不包含螢幕鍵盤
-- [&lt;meta name="viewport"&gt; – MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/viewport)：`interactive-widget` 的三個值與預設值 `resizes-visual`
-- [Prepare for viewport resize behavior changes coming to Chrome on Android – Chrome for Developers](https://developer.chrome.com/blog/viewport-resize-behavior)：Android Chrome 的鍵盤行為改為只縮 visual viewport，並提供 `interactive-widget`
-- [interactive-widget – Can I use](https://caniuse.com/mdn-html_elements_meta_name_viewport_interactive-widget)：各瀏覽器支援度，截至 2026-11-20 穩定版 iOS Safari 尚未支援
-- [Safari Technology Preview 255 – WebKit](https://webkit.org/blog/18482/release-notes-for-safari-technology-preview-255/)：WebKit 已開始實作與修正 `interactive-widget=resizes-content`
+- [Viewport concepts – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/CSSOM_view/Viewport_concepts)：layout viewport 與 visual viewport 的差異
+- [CSS Viewport Module Level 1 – W3C](https://www.w3.org/TR/css-viewport-1/#interactive-widget)：虛擬鍵盤對 viewport 的預設 resize 行為
+- [Prepare for viewport resize behavior changes coming to Chrome on Android – Chrome for Developers](https://developer.chrome.com/blog/viewport-resize-behavior)：虛擬鍵盤開啟時，各瀏覽器縮放或移動 viewport 的方式
 - [hover – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover)、[pointer – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer)：兩者都以「主要輸入裝置」判斷
-- [any-hover – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/any-hover)、[any-pointer – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/any-pointer)：判斷任一輸入裝置
-- [:has() – MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/:has)
